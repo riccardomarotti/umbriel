@@ -660,6 +660,9 @@ namespace umbriel {
               {"seq", (*presented)[0]}, {"presented_ns", (*presented)[1]}
           };
         }
+        if (!target->latePoseSocketPath().empty()) {
+          reply["late_pose_socket"] = target->latePoseSocketPath();
+        }
         return reply.dump();
       }
       return R"({"ok":true})";
