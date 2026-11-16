@@ -115,7 +115,7 @@ namespace umbriel {
     }
 
     const bool extended = request["version"] == 2;
-    if (extended != request.contains("input_mapping")) {
+    if (request.size() != (extended ? 6U : 5U) || extended != request.contains("input_mapping")) {
       return std::nullopt;
     }
     if (extended) {
