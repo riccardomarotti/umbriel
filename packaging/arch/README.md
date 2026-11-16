@@ -5,7 +5,7 @@ This directory contains a local, fork-based replacement for the AUR
 called `umbriel-git`; it provides the same `umbriel` capability.
 
 The package source is
-`riccardomarotti/umbriel#feature/realtime-effect-input`. A rebuild fetches
+`riccardomarotti/umbriel#feature/generic-effect-input-mapping`. A rebuild fetches
 the latest committed version on that branch.
 
 ## Install
@@ -14,7 +14,7 @@ From a checked-out copy of that branch:
 
 ~~~fish
 cd ~/workspace/umbriel
-git switch feature/realtime-effect-input
+git switch feature/generic-effect-input-mapping
 git pull --ff-only
 cd packaging/arch
 makepkg -si

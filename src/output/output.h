@@ -9,9 +9,11 @@
 #include "output/hdr_transition.h"
 #include "scene/effect_audio.h"
 #include "scene/effect_selection.h"
+#include "scene/effect_input_mapping.h"
 
 #include <array>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <string>
@@ -93,6 +95,10 @@ namespace umbriel {
     // Pushes the effect capture policy and the screen and cursor presets to this output's scene. Detached while
     // effects are suspended; the instances are visible only while the output is enabled.
     void applyOutputEffects();
+    // Matrix associated with the most recently displayed frame of this output.
+    const EffectInputMapping* presentedInputMapping() const {
+      return m_presentedInputMapping ? &*m_presentedInputMapping : nullptr;
+    }
     EffectSlot& screenEffectSlot() { return m_screenEffectSlot; }
     const EffectSlot& screenEffectSlot() const { return m_screenEffectSlot; }
     // Captures are released only by a built frame: asks for one when the last frame kept effects out of a capture.
@@ -347,6 +353,13 @@ namespace umbriel {
     float m_effectSeconds = 0.0F;
     bool m_outputEffectsTimed = false; // a visible screen or cursor instance here reads umbriel_time
     bool m_liveEffectAttached = false; // clear dynamic uniform availability after producer disconnect
+    struct InputMappingCommit {
+      uint32_t sequence = 0;
+      std::optional<EffectInputMapping> mapping;
+    };
+    std::optional<EffectInputMapping> m_preparedInputMapping;
+    std::optional<EffectInputMapping> m_presentedInputMapping;
+    std::deque<InputMappingCommit> m_pendingInputMappings;
     char m_cursorEffectOwner{};        // ledger identity of the cursor slot; the screen slot uses `this`
     bool m_effectCaptureBuilt = false; // the last built frame had an effect capture pending
     View* m_autoHdrOwner = nullptr;

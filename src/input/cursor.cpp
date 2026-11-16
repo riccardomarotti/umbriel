@@ -16,6 +16,7 @@
 #include "output/output.h"
 #include "overview/overview.h"
 #include "scene/cheatsheet.h"
+#include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
 #include "scene/ssd_frame.h"
@@ -1753,7 +1754,8 @@ namespace umbriel {
       if (press.view->ssdFrame() != nullptr) {
         press.view->ssdFrame()->setPressed(SsdFramePart::None);
       }
-      const auto hit = m_server->ssdFrameAt(m_cursor->x, m_cursor->y);
+      const auto mapped = mappedScenePosition();
+      const auto hit = mapped ? m_server->ssdFrameAt(mapped->first, mapped->second) : std::nullopt;
       if (hit
           && hit->view == press.view
           && hit->part == press.part
@@ -1909,7 +1911,10 @@ namespace umbriel {
     double sy = 0;
     wlr_surface* surface = nullptr;
     LayerSurface* layer = nullptr;
-    View* view = m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy, &layer);
+    const auto mapped = mappedScenePosition();
+    View* view = mapped
+        ? m_server->viewAt(mapped->first, mapped->second, &surface, &sx, &sy, &layer)
+        : nullptr;
 
     if (m_server->sessionLocked()) {
       m_server->seat()->notifyPointerModifiers();
@@ -1924,6 +1929,14 @@ namespace umbriel {
       return;
     }
 
+    if (!mapped) {
+      // The screen shader shows no source content at this pixel. Consume the
+      // press and its release instead of dispatching to an invisible surface.
+      m_swallowedButtons.push_back(button);
+      clearPointerFocus();
+      return;
+    }
+
     // Scene hit testing lets covered chrome stay covered by windows and panels. Mod+left and Mod+right on the frame
     // grab the window as they do on its content.
     const bool modHeld = (m_server->keyboardModifiers() & m_server->modKey()) != 0;
@@ -1931,7 +1944,7 @@ namespace umbriel {
     if (m_server->exclusiveKeyboardLayer() == nullptr
         && isPassthrough()
         && !wlr_seat_pointer_has_grab(m_server->seat()->wlr())) {
-      if (const auto hit = m_server->ssdFrameAt(m_cursor->x, m_cursor->y); hit && modGrab) {
+      if (const auto hit = m_server->ssdFrameAt(mapped->first, mapped->second); hit && modGrab) {
         view = hit->view;
       } else if (hit) {
         View* target = hit->view;
@@ -1976,7 +1989,7 @@ namespace umbriel {
 
     // A press on a tab bar is the compositor's: no client sees it or its release. The left button selects the tab and
     // holds it, so dragging it past the threshold pulls it out of its column like any tiled window.
-    if (const std::optional<TabHit> hit = tabBarHitAt(*m_server, m_cursor->x, m_cursor->y, surface, view, layer)) {
+    if (const std::optional<TabHit> hit = tabBarHitAt(*m_server, mapped->first, mapped->second, surface, view, layer)) {
       const bool keyboardFree = m_server->exclusiveKeyboardLayer() == nullptr;
       Workspace* home = hit->tab->workspace();
       if (hit->part != TabBarPart::Tab) {
@@ -2217,8 +2230,12 @@ namespace umbriel {
     double sy = 0;
     wlr_surface* surface = nullptr;
     LayerSurface* layer = nullptr;
-    View* view = m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy, &layer);
-    const std::optional<TabHit> hit = tabBarHitAt(*m_server, m_cursor->x, m_cursor->y, surface, view, layer);
+    const auto mapped = mappedScenePosition();
+    if (!mapped) {
+      return false;
+    }
+    View* view = m_server->viewAt(mapped->first, mapped->second, &surface, &sx, &sy, &layer);
+    const std::optional<TabHit> hit = tabBarHitAt(*m_server, mapped->first, mapped->second, surface, view, layer);
     Workspace* workspace = hit ? hit->tab->workspace() : nullptr;
     if (workspace == nullptr || !workspace->layoutConfig().tabs.scrollSwitchesTabs) {
       return false;
@@ -2401,6 +2418,34 @@ namespace umbriel {
 
   void Cursor::handleTouchFrame() { wlr_seat_touch_notify_frame(m_server->seat()->wlr()); }
 
+  std::optional<std::pair<double, double>> Cursor::mappedScenePosition() const {
+    return mappedScenePosition(m_cursor->x, m_cursor->y);
+  }
+
+  std::optional<std::pair<double, double>> Cursor::mappedScenePosition(double x, double y) const {
+    if (m_server->sessionLocked()) {
+      return std::pair{x, y};
+    }
+    wlr_output* wlrOutput = wlr_output_layout_output_at(m_server->outputLayout(), x, y);
+    const Output* output = m_server->outputFromWlr(wlrOutput);
+    if (output == nullptr) {
+      return std::pair{x, y};
+    }
+    const EffectInputMapping* mapping = output->presentedInputMapping();
+    if (mapping == nullptr) {
+      return std::pair{x, y};
+    }
+    const wlr_box box = output->layoutBox();
+    if (box.width <= 0 || box.height <= 0) {
+      return std::nullopt;
+    }
+    const auto source = mapping->sourceAt((x - box.x) / box.width, (y - box.y) / box.height);
+    if (!source) {
+      return std::nullopt;
+    }
+    return std::pair{box.x + source->x * box.width, box.y + source->y * box.height};
+  }
+
   void Cursor::processMotion(uint32_t timeMsec, double oldX, double oldY, bool allowFocusChange) {
     updateHotCorner();
     forwardEffectPointer();
@@ -2507,8 +2552,13 @@ namespace umbriel {
       // would turn compositor-driven window animation into apparent pointer travel and make small clicks look like
       // client drags.
       const double scale = surfaceScale(seat->pointer_state.focused_surface);
-      const double sx = seat->pointer_state.sx + ((m_cursor->x - oldX) * scale);
-      const double sy = seat->pointer_state.sy + ((m_cursor->y - oldY) * scale);
+      const auto previous = mappedScenePosition(oldX, oldY);
+      const auto current = mappedScenePosition();
+      if (!previous || !current) {
+        return;
+      }
+      const double sx = seat->pointer_state.sx + ((current->first - previous->first) * scale);
+      const double sy = seat->pointer_state.sy + ((current->second - previous->second) * scale);
       wlr_seat_pointer_notify_motion(seat, timeMsec, sx, sy);
       updateConstraintForSurface(seat->pointer_state.focused_surface);
       return;
@@ -2519,14 +2569,19 @@ namespace umbriel {
     double sy = 0;
     wlr_surface* surface = nullptr;
     LayerSurface* layer = nullptr;
-    View* view = m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy, &layer);
+    const auto mapped = mappedScenePosition();
+    View* view = mapped
+        ? m_server->viewAt(mapped->first, mapped->second, &surface, &sx, &sy, &layer)
+        : nullptr;
 
     if (allowFocusChange
         && config().input.focus.followsMouseEnabled()
         && layer == nullptr
         && view != nullptr
         && view->mapped()) {
-      view = hoverFocus(view, &surface, &sx, &sy, &layer, oldX, oldY);
+      const auto previous = mappedScenePosition(oldX, oldY);
+      view = hoverFocus(view, &surface, &sx, &sy, &layer,
+                        previous ? previous->first : oldX, previous ? previous->second : oldY);
     }
 
     if (surface != nullptr) {
@@ -2546,7 +2601,7 @@ namespace umbriel {
       );
     }
 
-    const auto frameHit = m_server->ssdFrameAt(m_cursor->x, m_cursor->y);
+    const auto frameHit = mapped ? m_server->ssdFrameAt(mapped->first, mapped->second) : std::nullopt;
     View* frameView = frameHit ? frameHit->view : nullptr;
     if (m_ssdHoverView != frameView && m_ssdHoverView != nullptr && m_ssdHoverView->ssdFrame() != nullptr) {
       m_ssdHoverView->ssdFrame()->setHovered(SsdFramePart::None);
@@ -3722,7 +3777,10 @@ namespace umbriel {
     double sy = 0;
     wlr_surface* surface = nullptr;
     LayerSurface* layer = nullptr;
-    m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy, &layer);
+    const auto mapped = mappedScenePosition();
+    if (mapped) {
+      m_server->viewAt(mapped->first, mapped->second, &surface, &sx, &sy, &layer);
+    }
     if (const Overview* overview = m_server->overview(); overview != nullptr
         && overview->active()
         && !m_server->sessionLocked()
@@ -3791,7 +3849,10 @@ namespace umbriel {
     double sy = 0;
     wlr_surface* surface = nullptr;
     LayerSurface* layer = nullptr;
-    View* view = m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy, &layer);
+    const auto mapped = mappedScenePosition();
+    View* view = mapped
+        ? m_server->viewAt(mapped->first, mapped->second, &surface, &sx, &sy, &layer)
+        : nullptr;
     if (!pointerContentsStale(surface, sx, sy)) {
       return;
     }
@@ -3847,7 +3908,8 @@ namespace umbriel {
     }
 
     if (!modHeld) {
-      if (const auto hit = m_server->ssdFrameAt(m_cursor->x, m_cursor->y)) {
+      const auto mapped = mappedScenePosition();
+      if (const auto hit = mapped ? m_server->ssdFrameAt(mapped->first, mapped->second) : std::nullopt) {
         const char* name = "default";
         if (hit->part == SsdFramePart::Resize) {
           name = wlr_xcursor_get_resize_name(static_cast<enum wlr_edges>(hit->edges));
