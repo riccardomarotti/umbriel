@@ -219,6 +219,14 @@ void wlr_scene_output_set_effect_capture_policy(struct wlr_scene_output* output,
 void wlr_scene_output_set_screen_effect(
     struct wlr_scene_output* output, struct fx_effect_shader* shader, const struct fx_animation_parameters* parameters
 );
+// Optional last-moment parameter override, called after the scene has been
+// rendered and immediately before the visible screen-effect pass. The callback
+// must not block, allocate GPU resources, or retain 'parameters'. Capture
+// passes deliberately keep the previously sampled parameters.
+typedef void (*fx_screen_effect_late_latch_fn)(void* data, struct fx_animation_parameters* parameters);
+void wlr_scene_output_set_screen_effect_late_latch(
+    struct wlr_scene_output* output, fx_screen_effect_late_latch_fn callback, void* data
+);
 void wlr_scene_output_set_cursor_effect(
     struct wlr_scene_output* output, struct fx_effect_shader* shader, const struct fx_animation_parameters* parameters,
     int radius
