@@ -115,7 +115,9 @@ namespace umbriel {
     }
 
     const bool extended = request["version"] == 2;
-    if (request.size() != (extended ? 6U : 5U) || extended != request.contains("input_mapping")) {
+    const bool hasProbe = extended && request.contains("latency_probe");
+    if (request.size() != (extended ? (hasProbe ? 7U : 6U) : 5U)
+        || extended != request.contains("input_mapping")) {
       return std::nullopt;
     }
     if (extended) {
@@ -134,6 +136,25 @@ namespace umbriel {
         return std::nullopt;
       }
       snapshot.inputMapping = mapping;
+    }
+    if (hasProbe) {
+      // Optional, experimental timing metadata; not interpreted by the shader.
+      const auto& probe = request["latency_probe"];
+      if (!probe.is_object() || probe.size() != 3 || !probe.contains("seq")
+          || !probe.contains("sample_ns") || !probe.contains("sent_ns")
+          || !probe["seq"].is_number_unsigned() || !probe["sample_ns"].is_number_unsigned()
+          || !probe["sent_ns"].is_number_unsigned()) {
+        return std::nullopt;
+      }
+      EffectLatencyProbe timing{};
+      timing.sequence = probe["seq"].get<uint64_t>();
+      timing.sampleMonotonicNs = probe["sample_ns"].get<uint64_t>();
+      timing.sentMonotonicNs = probe["sent_ns"].get<uint64_t>();
+      if (timing.sequence == 0 || timing.sampleMonotonicNs == 0
+          || timing.sampleMonotonicNs > timing.sentMonotonicNs) {
+        return std::nullopt;
+      }
+      snapshot.latencyProbe = timing;
     }
 
     for (const auto& item : request["uniforms"]) {
