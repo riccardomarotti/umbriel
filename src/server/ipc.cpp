@@ -286,6 +286,7 @@ namespace umbriel {
     m_liveUniforms.erase(it);
     for (const auto& output : m_server->outputs()) {
       if (output->wlr()->name != nullptr && outputName == output->wlr()->name) {
+        output->resetLivePoseTiming();
         output->scheduleEffectFrame();
         break;
       }
@@ -650,9 +651,16 @@ namespace umbriel {
       // the pending value and do not allocate a queue of compositor frames.
       target->scheduleEffectFrame();
       if (snapshot->latencyProbe) {
+        nlohmann::json reply{{"ok", true}};
         if (const auto estimate = target->estimatedLivePresentationDelayNs()) {
-          return nlohmann::json{{"ok", true}, {"presentation_delay_ns", *estimate}}.dump();
+          reply["presentation_delay_ns"] = *estimate;
         }
+        if (const auto presented = target->lastPresentedLivePose()) {
+          reply["last_presented_pose"] = {
+              {"seq", (*presented)[0]}, {"presented_ns", (*presented)[1]}
+          };
+        }
+        return reply.dump();
       }
       return R"({"ok":true})";
     }
