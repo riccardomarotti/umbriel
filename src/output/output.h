@@ -10,6 +10,7 @@
 #include "scene/effect_audio.h"
 #include "scene/effect_selection.h"
 #include "scene/effect_input_mapping.h"
+#include "scene/live_effect_uniforms.h"
 
 #include <array>
 #include <cstdint>
@@ -356,8 +357,21 @@ namespace umbriel {
     struct InputMappingCommit {
       uint32_t sequence = 0;
       std::optional<EffectInputMapping> mapping;
+      std::optional<EffectLatencyProbe> probe;
+      uint64_t frameStartMonotonicNs = 0;
+      uint64_t commitMonotonicNs = 0;
     };
     std::optional<EffectInputMapping> m_preparedInputMapping;
+    std::optional<EffectLatencyProbe> m_preparedLatencyProbe;
+    uint64_t m_latencyLastReportMonotonicNs = 0;
+    uint64_t m_latencyCount = 0;
+    double m_latencySumSampleMs = 0.0;
+    double m_latencySumIpcMs = 0.0;
+    double m_latencySumWaitMs = 0.0;
+    double m_latencySumFrameMs = 0.0;
+    double m_latencySumPresentMs = 0.0;
+    double m_latencyMaxSampleMs = 0.0;
+    double m_latencyMaxPresentMs = 0.0;
     std::optional<EffectInputMapping> m_presentedInputMapping;
     std::deque<InputMappingCommit> m_pendingInputMappings;
     char m_cursorEffectOwner{};        // ledger identity of the cursor slot; the screen slot uses `this`
