@@ -5,7 +5,7 @@ pkgname=umbriel-orametra-git
 pkgver=0.1.0.r0.0000000
 pkgrel=1
 epoch=1
-pkgdesc='Umbriel Wayland compositor built from the generic live-effects development fork'
+pkgdesc='Umbriel Wayland compositor with experimental late-pose-latch effect pipeline'
 arch=('x86_64' 'aarch64')
 url='https://github.com/riccardomarotti/umbriel'
 license=('MIT')
@@ -44,7 +44,7 @@ makedepends=(
 )
 provides=('umbriel')
 conflicts=('umbriel' 'umbriel-git')
-source=('umbriel::git+https://github.com/riccardomarotti/umbriel.git#branch=feature/generic-effect-input-mapping')
+source=('umbriel::git+https://github.com/riccardomarotti/umbriel.git#branch=feature/late-pose-latch')
 b2sums=('SKIP')
 
 pkgver() {
