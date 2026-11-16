@@ -19,6 +19,7 @@
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
 #include "scene/ssd_frame.h"
+#include "server/ipc.h"
 #include "server/server.h"
 #include "view/size_hints.h"
 #include "view/view.h"
@@ -1909,7 +1910,10 @@ namespace umbriel {
     double sy = 0;
     wlr_surface* surface = nullptr;
     LayerSurface* layer = nullptr;
-    View* view = m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy, &layer);
+    const auto mapped = mappedScenePosition();
+    View* view = mapped
+        ? m_server->viewAt(mapped->first, mapped->second, &surface, &sx, &sy, &layer)
+        : nullptr;
 
     if (m_server->sessionLocked()) {
       m_server->seat()->notifyPointerModifiers();
@@ -1921,6 +1925,14 @@ namespace umbriel {
           }
         }
       }
+      return;
+    }
+
+    if (!mapped) {
+      // The screen shader shows no source content at this pixel. Consume the
+      // press and its release instead of dispatching to an invisible surface.
+      m_swallowedButtons.push_back(button);
+      clearPointerFocus();
       return;
     }
 
@@ -2398,6 +2410,31 @@ namespace umbriel {
 
   void Cursor::handleTouchFrame() { wlr_seat_touch_notify_frame(m_server->seat()->wlr()); }
 
+  std::optional<std::pair<double, double>> Cursor::mappedScenePosition() const {
+    const double x = m_cursor->x, y = m_cursor->y;
+    if (m_server->sessionLocked() || m_server->effects().ledger().suspended()) {
+      return std::pair{x, y};
+    }
+    const wlr_output* wlrOutput = wlr_output_layout_output_at(m_server->outputLayout(), x, y);
+    const Output* output = m_server->outputFromWlr(const_cast<wlr_output*>(wlrOutput));
+    if (output == nullptr || !output->screenEffectActive() || m_server->ipc() == nullptr) {
+      return std::pair{x, y};
+    }
+    const EffectInputMapping* mapping = m_server->ipc()->inputMappingForOutput(output->wlr()->name);
+    if (mapping == nullptr) {
+      return std::pair{x, y};
+    }
+    const wlr_box box = output->layoutBox();
+    if (box.width <= 0 || box.height <= 0) {
+      return std::nullopt;
+    }
+    const auto source = mapping->sourceAt((x - box.x) / box.width, (y - box.y) / box.height);
+    if (!source) {
+      return std::nullopt;
+    }
+    return std::pair{box.x + source->x * box.width, box.y + source->y * box.height};
+  }
+
   void Cursor::processMotion(uint32_t timeMsec, double oldX, double oldY, bool allowFocusChange) {
     updateHotCorner();
     forwardEffectPointer();
@@ -2516,7 +2553,10 @@ namespace umbriel {
     double sy = 0;
     wlr_surface* surface = nullptr;
     LayerSurface* layer = nullptr;
-    View* view = m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy, &layer);
+    const auto mapped = mappedScenePosition();
+    View* view = mapped
+        ? m_server->viewAt(mapped->first, mapped->second, &surface, &sx, &sy, &layer)
+        : nullptr;
 
     if (allowFocusChange
         && config().input.focus.followsMouseEnabled()
@@ -3719,7 +3759,10 @@ namespace umbriel {
     double sy = 0;
     wlr_surface* surface = nullptr;
     LayerSurface* layer = nullptr;
-    m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy, &layer);
+    const auto mapped = mappedScenePosition();
+    if (mapped) {
+      m_server->viewAt(mapped->first, mapped->second, &surface, &sx, &sy, &layer);
+    }
     if (const Overview* overview = m_server->overview(); overview != nullptr
         && overview->active()
         && !m_server->sessionLocked()
@@ -3788,7 +3831,10 @@ namespace umbriel {
     double sy = 0;
     wlr_surface* surface = nullptr;
     LayerSurface* layer = nullptr;
-    View* view = m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy, &layer);
+    const auto mapped = mappedScenePosition();
+    View* view = mapped
+        ? m_server->viewAt(mapped->first, mapped->second, &surface, &sx, &sy, &layer)
+        : nullptr;
     if (!pointerContentsStale(surface, sx, sy)) {
       return;
     }
