@@ -632,7 +632,6 @@ namespace umbriel {
       if (found != m_liveUniforms.end() && found->second.owner != &connection) {
         return R"({"err":"live effect input already owned"})";
       }
-      const bool newOwner = connection.liveOutput.empty();
       connection.liveOutput = snapshot->output;
       m_liveUniforms[connection.liveOutput] = {.owner = &connection, .snapshot = *snapshot};
       if (wl_event_source_timer_update(connection.deadline, kLiveFreshnessMs) < 0) {
@@ -642,7 +641,6 @@ namespace umbriel {
       // Rendering is paced by the output; multiple incoming snapshots replace
       // the pending value and do not allocate a queue of compositor frames.
       target->scheduleEffectFrame();
-      (void)newOwner;
       return R"({"ok":true})";
     }
     if (&connection == m_audio || (req.is_object() && req.contains("cmd") && req["cmd"] == "effect-audio")) {
