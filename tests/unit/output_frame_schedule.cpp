@@ -117,6 +117,10 @@ UMBRIEL_TEST(effectPresentationDelayUsesDistinctPresentedSamples) {
   CHECK_EQ(estimate.estimateNs(), std::optional<uint64_t>(14'000'000));
   estimate.observe(5, 2'000'000, 10'000'000);
   CHECK_EQ(estimate.estimateNs(), std::optional<uint64_t>(13'250'000));
+  estimate.reset();
+  CHECK(!estimate.estimateNs().has_value());
+  estimate.observe(1, 3'000'000, 11'000'000);
+  CHECK_EQ(estimate.estimateNs(), std::optional<uint64_t>(8'000'000));
 }
 
 int main() { return RUN_TESTS(); }
