@@ -146,3 +146,44 @@ just test debug
 A successful debug build only verifies compilation and unit tests; IPC
 ownership, redraw pacing and disconnect behavior still need targeted
 headless/nested integration checks and a hardware trial.
+
+## Optional input mapping (experimental v2)
+
+Version 1 remains unchanged: a producer may send typed screen uniforms only.
+Version 2 additionally requires a nine-number `input_mapping` array: a
+row-major homography from **visible output UV** to **original scene UV**,
+both with a top-left origin.
+
+~~~json
+{
+  "cmd": "effect-uniforms",
+  "version": 2,
+  "kind": "screen",
+  "output": "DP-2",
+  "uniforms": [{"name": "external_value", "type": "float", "value": 0.0}],
+  "input_mapping": [1, 0, 0, 0, 1, 0, 0, 0, 1]
+}
+~~~
+
+The example uses an identity mapping, independently of any hardware or effect.
+For visible (u,v), the original source point is
+`((m0*u+m1*v+m2)/w, (m3*u+m4*v+m5)/w)` where
+`w=m6*u+m7*v+m8`. Invalid, singular, or non-finite matrices are rejected.
+The pointer remains visually at its physical position; only the hit-testing
+coordinates are transformed. Clicks outside the projected source are not
+dispatched to hidden surfaces.
+
+The compositor stores the mapping sampled with each rendered output buffer,
+identified by its commit sequence. **Only a successful presentation** activates
+the mapping. Incoming snapshots are never used for hit-testing until the
+matching frame appears. Producer disconnect keeps the last visible mapping
+until an unwarped fallback buffer is presented. A changed mapping triggers
+a refresh of hover under a stationary mouse.
+
+The implementation covers regular pointer movement, client clicks,
+server-side decorations, tab bars, and ordinary implicit click grabs. Full
+pointer-constraint and all data-device-drag paths, touch, and transformed
+relative-pointer protocols still require integration testing.
+
+The producer, not Umbriel, owns the effect's projection geometry and any
+device-specific parameters. This is an experimental API, not yet upstream.

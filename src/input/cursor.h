@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <utility>
 #include <string>
 #include <variant>
 #include <vector>
@@ -324,6 +325,10 @@ namespace umbriel {
     void handleTabletToolButton(void* data);
 
     void warpTo(double lx, double ly, bool allowFocusChange);
+    // Returns the scene-space position under the physically drawn cursor, or no point
+    // when the active screen effect maps it outside the source image.
+    std::optional<std::pair<double, double>> mappedScenePosition() const;
+    std::optional<std::pair<double, double>> mappedScenePosition(double x, double y) const;
     void processMotion(uint32_t timeMsec, double oldX, double oldY, bool allowFocusChange = true);
     void processButton(const void* source, uint32_t timeMsec, uint32_t button, wl_pointer_button_state state);
     void dispatchButton(const void* source, uint32_t timeMsec, uint32_t button, wl_pointer_button_state state);

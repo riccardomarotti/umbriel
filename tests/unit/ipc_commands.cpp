@@ -647,3 +647,32 @@ UMBRIEL_TEST(liveUniformsRejectInvalidMessages) {
   request["uniforms"] = nlohmann::json::array();
   CHECK(!umbriel::IpcCommands::parseLiveEffectUniforms(request).has_value());
 }
+
+
+UMBRIEL_TEST(liveUniformInputMappingRequiresVersion2) {
+  nlohmann::json request = {
+      {"cmd", "effect-uniforms"},
+      {"version", 1},
+      {"kind", "screen"},
+      {"output", "HEADLESS-1"},
+      {"uniforms", nlohmann::json::array({{{"name", "level"}, {"type", "float"}, {"value", 0.5}}})},
+  };
+  CHECK(umbriel::IpcCommands::parseLiveEffectUniforms(request).has_value());
+  request["input_mapping"] = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0};
+  CHECK(!umbriel::IpcCommands::parseLiveEffectUniforms(request).has_value());
+  request["version"] = 2;
+  const auto valid = umbriel::IpcCommands::parseLiveEffectUniforms(request);
+  CHECK(valid.has_value());
+  CHECK(valid && valid->inputMapping.has_value());
+  if (valid && valid->inputMapping) {
+    const auto point = valid->inputMapping->sourceAt(0.3, 0.8);
+    CHECK(point.has_value());
+    CHECK(point && std::abs(point->x - 0.3) < 1e-10);
+  }
+  request.erase("input_mapping");
+  CHECK(!umbriel::IpcCommands::parseLiveEffectUniforms(request).has_value());
+  request["input_mapping"] = {1.0, 2.0, 3.0};
+  CHECK(!umbriel::IpcCommands::parseLiveEffectUniforms(request).has_value());
+  request["input_mapping"] = {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0};
+  CHECK(!umbriel::IpcCommands::parseLiveEffectUniforms(request).has_value());
+}
