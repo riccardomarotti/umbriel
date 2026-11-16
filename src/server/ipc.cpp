@@ -259,6 +259,11 @@ namespace umbriel {
     return it != m_liveUniforms.end() ? &it->second.snapshot : nullptr;
   }
 
+  const EffectInputMapping* Ipc::inputMappingForOutput(std::string_view output) const {
+    const LiveEffectUniforms* snapshot = liveUniformsForOutput(output);
+    return snapshot != nullptr && snapshot->inputMapping ? &*snapshot->inputMapping : nullptr;
+  }
+
   bool Ipc::hasLiveUniformsForOutput(std::string_view output) const {
     return m_liveUniforms.contains(output);
   }
