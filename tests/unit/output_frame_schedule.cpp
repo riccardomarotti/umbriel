@@ -103,4 +103,20 @@ UMBRIEL_TEST(effectFrameDelayNeverDropsBelowOneMillisecond) {
   CHECK_EQ(umbriel::effectFrameDelayMs(2000, 1000, 1000), uint64_t{1});
 }
 
+UMBRIEL_TEST(effectPresentationDelayUsesDistinctPresentedSamples) {
+  umbriel::EffectPresentationDelay estimate;
+  CHECK(!estimate.estimateNs().has_value());
+  estimate.observe(1, 1'000'000, 14'000'000);
+  CHECK_EQ(estimate.estimateNs(), std::optional<uint64_t>(13'000'000));
+  estimate.observe(1, 1'000'000, 22'000'000); // duplicate snapshot must not bias timing
+  CHECK_EQ(estimate.estimateNs(), std::optional<uint64_t>(13'000'000));
+  estimate.observe(2, 2'000'000, 23'000'000);
+  CHECK_EQ(estimate.estimateNs(), std::optional<uint64_t>(14'000'000));
+  estimate.observe(3, 10, 9); // invalid clock ordering
+  estimate.observe(4, 10, 60'000'010); // stalled presentation
+  CHECK_EQ(estimate.estimateNs(), std::optional<uint64_t>(14'000'000));
+  estimate.observe(5, 2'000'000, 10'000'000);
+  CHECK_EQ(estimate.estimateNs(), std::optional<uint64_t>(13'250'000));
+}
+
 int main() { return RUN_TESTS(); }
