@@ -71,6 +71,8 @@ namespace umbriel {
     // Latest typed screen-effect input for an output; valid only while its IPC producer owns the slot.
     const LiveEffectUniforms* liveUniformsForOutput(std::string_view output) const;
     bool hasLiveUniformsForOutput(std::string_view output) const;
+    // Optional, compositor-agnostic visible-UV to source-UV mapping.
+    const EffectInputMapping* inputMappingForOutput(std::string_view output) const;
     void forgetLiveUniformsForOutput(std::string_view output);
 
   private:
