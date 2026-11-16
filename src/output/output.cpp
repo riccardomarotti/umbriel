@@ -301,6 +301,9 @@ namespace umbriel {
 #endif
     wlr_scene_output_set_effect_time(m_sceneOutput, m_server->animationClockMsec());
     m_outputEffectsTimed = false;
+    const LiveEffectUniforms* live = m_server->ipc() != nullptr
+        ? m_server->ipc()->liveUniformsForOutput(m_output->name) : nullptr;
+    m_liveEffectAttached = live != nullptr && screen != nullptr;
     // Register demand after the cursor program and motion history have been updated.
     const auto bind = [&](const void* owner, fx_effect_shader* shader, bool visible) {
       const bool motion = fx_effect_shader_reads(shader, "umbriel_pointer_history")
@@ -315,6 +318,25 @@ namespace umbriel {
     if (screenPreset != nullptr) {
       fx_animation_parameters parameters{};
       registry.fillTimeUniforms(parameters, m_effectSeconds, *screenPreset, screen);
+      // The last complete producer snapshot is read at frame time. The shader
+      // decides what each numeric input means; nothing here is device-specific.
+      if (fx_effect_shader_reads(screen, "umbriel_live_available")) {
+        if (fx_uniform* available = fx_parameters_add_uniform(
+                &parameters, "umbriel_live_available", FX_UNIFORM_FLOAT, 1)) {
+          available->floats[0] = live != nullptr ? 1.0F : 0.0F;
+        }
+      }
+      if (live != nullptr) {
+        for (size_t i = 0; i < live->count && parameters.uniform_count < FX_UNIFORMS_MAX; ++i) {
+          const fx_uniform& external = live->uniforms[i];
+          if (!fx_effect_shader_reads(screen, external.name)) {
+            continue;
+          }
+          if (fx_uniform* uniform = fx_parameters_add_uniform(&parameters, external.name, external.type, 1)) {
+            *uniform = external;
+          }
+        }
+      }
       bind(this, screen, m_output->enabled);
       wlr_scene_output_set_screen_effect(m_sceneOutput, screen, &parameters);
     } else {
@@ -2100,7 +2122,11 @@ namespace umbriel {
     const uint64_t vblankNs = latestVblankNs(nowNs, m_lastPresentNs, m_refreshNs);
     const uint64_t sampleNs = vblankNs != 0 ? vblankNs : nowNs;
     m_server->tickAnimations(m_server->animationFrameClockMsec(static_cast<double>(sampleNs) / 1e6));
-    if (stampEffectTime && m_outputEffectsTimed) {
+    // Live inputs are sampled for the target output's frame, not on the
+    // producer's clock. Also push a final unavailable state on disconnect.
+    const bool hasLiveInput = m_server->ipc() != nullptr
+        && m_server->ipc()->hasLiveUniformsForOutput(m_output->name);
+    if ((stampEffectTime && m_outputEffectsTimed) || hasLiveInput || m_liveEffectAttached) {
       applyOutputEffects();
     }
 
