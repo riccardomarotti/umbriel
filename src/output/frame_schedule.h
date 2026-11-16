@@ -83,6 +83,7 @@ namespace umbriel {
     }
 
     std::optional<uint64_t> estimateNs() const { return m_estimateNs; }
+    void reset() { m_estimateNs.reset(); m_lastSequence = 0; }
 
   private:
     std::optional<uint64_t> m_estimateNs;
