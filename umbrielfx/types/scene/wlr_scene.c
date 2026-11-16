@@ -4701,6 +4701,8 @@ struct scene_output_effects {
   struct fx_effect_shader* screen;
   struct fx_animation_parameters screen_parameters;
   struct fx_animation_history screen_history;
+  fx_screen_effect_late_latch_fn screen_late_latch;
+  void* screen_late_latch_data;
   struct fx_effect_shader* cursor;
   struct fx_animation_parameters cursor_parameters;
   struct fx_animation_history cursor_history;
@@ -4955,6 +4957,17 @@ void wlr_scene_output_set_screen_effect(
   scene_output_damage_whole(output);
 }
 
+void wlr_scene_output_set_screen_effect_late_latch(
+    struct wlr_scene_output* output, fx_screen_effect_late_latch_fn callback, void* data
+) {
+  struct scene_output_effects* effects = scene_output_effects_get(output, callback != NULL);
+  if (effects == NULL) {
+    return;
+  }
+  effects->screen_late_latch = callback;
+  effects->screen_late_latch_data = data;
+}
+
 void wlr_scene_output_set_cursor_effect(
     struct wlr_scene_output* output, struct fx_effect_shader* shader, const struct fx_animation_parameters* parameters,
     int radius
@@ -5078,8 +5091,14 @@ static void render_output_effects(struct scene_output_effects* effects, const st
     return;
   }
   const struct wlr_box whole = {.width = data->logical.width, .height = data->logical.height};
+  // Late latch runs after the scene composition, immediately before the
+  // screen-effect timewarp. Keep captures independent of the live pose.
+  struct fx_animation_parameters screen_parameters = effects->screen_parameters;
+  if (effects->screen != NULL && !data->effect_capture && effects->screen_late_latch != NULL) {
+    effects->screen_late_latch(effects->screen_late_latch_data, &screen_parameters);
+  }
   render_output_effect(
-      effects->screen, &effects->screen_parameters, &effects->screen_history, &whole, NULL, NULL, data
+      effects->screen, &screen_parameters, &effects->screen_history, &whole, NULL, NULL, data
   );
   if (effects->cursor == NULL || !effects->pointer_visible) {
     return;
