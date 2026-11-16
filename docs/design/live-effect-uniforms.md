@@ -1,4 +1,8 @@
-# Live effect uniforms — generic design proposal
+# Live effect uniforms — experimental implementation
+
+The implementation is on branch `feature/realtime-effect-input`. It has
+not yet been compiled or exercised on real hardware. The format and limits
+below describe the current v1 prototype, not a stable upstream API.
 
 ## Purpose
 
@@ -37,6 +41,29 @@ Scope only to screen effects and one named output in v1; future kinds need
 their own target/ownership contract. A built-in float uniform named
 umbriel_live_available is 1 while a valid producer owns the values, 0
 otherwise. A shader can use it to fall back to the original image.
+
+## Current implementation constraints
+
+- The IPC command is `effect-uniforms`, with `version=1`, `kind=screen`,
+  `output` (current connector name) and a `uniforms` array.
+- At most **four named values** per snapshot. Names must fit the renderer's
+  31-character limit; GLSL identifiers only, and no `umbriel_` prefix.
+  Each entry has exactly `name`, `type` and `value`.
+- Each message is at most **4096 bytes** and contains complete state.
+  Values must be finite, within the representable `float` range, and have
+  the exact component count for their type.
+- A dedicated producer connection must send at least one valid message
+  every **250 ms**, even when its values do not change. It must wait for
+  `{"ok":true}` before sending the next snapshot.
+- A connection can own one output's live input. Disconnecting or exceeding
+  the freshness limit releases the slot and requests a fallback frame.
+- `umbriel_live_available` is bound to 1 while the producer is present,
+  otherwise 0, when the selected shader declares it.
+- Uniform capacity is shared with Umbriel's time and palette parameters.
+  At most four external values are accepted so the usual built-ins and
+  availability flag fit within the renderer's existing fixed-size array.
+- No global effects setting is enabled automatically. The screen preset
+  must be selected explicitly; the values are inert for unrelated shaders.
 
 ## Lifetime and ownership
 
@@ -99,3 +126,23 @@ Consumers own those semantics.
 
 Cursor coordinate remapping, display filtering, virtual desktops, software
 reprojection and soft follow are deliberately NOT part of this protocol.
+
+## Build and validation
+
+Do not install the modified compositor over the working desktop until a
+debug build passes:
+
+~~~fish
+cd ~/workspace/umbriel
+git fetch origin
+# Inspect and preserve local modifications before updating:
+git status --short
+git pull --ff-only
+just configure debug
+just debug
+just test debug
+~~~
+
+A successful debug build only verifies compilation and unit tests; IPC
+ownership, redraw pacing and disconnect behavior still need targeted
+headless/nested integration checks and a hardware trial.
