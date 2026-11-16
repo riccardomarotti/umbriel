@@ -97,7 +97,7 @@ namespace umbriel {
   }
 
   std::optional<LiveEffectUniforms> IpcCommands::parseLiveEffectUniforms(const nlohmann::json& request) {
-    if (!request.is_object() || request.size() != 5
+    if (!request.is_object() || (request.size() != 5 && request.size() != 6)
         || !request.contains("cmd") || !request["cmd"].is_string()
         || request["cmd"] != "effect-uniforms"
         || !request.contains("version") || !request["version"].is_number_integer()
@@ -112,6 +112,24 @@ namespace umbriel {
     if (snapshot.output.empty() || snapshot.output.size() > 128
         || request["uniforms"].empty() || request["uniforms"].size() > kMaxLiveEffectUniforms) {
       return std::nullopt;
+    }
+
+    if (request.contains("input_mapping")) {
+      const auto& values = request["input_mapping"];
+      if (!values.is_array() || values.size() != 9) {
+        return std::nullopt;
+      }
+      EffectInputMapping mapping;
+      for (size_t i = 0; i < 9; ++i) {
+        if (!values[i].is_number()) {
+          return std::nullopt;
+        }
+        mapping.matrix[i] = values[i].get<double>();
+      }
+      if (!mapping.valid()) {
+        return std::nullopt;
+      }
+      snapshot.inputMapping = mapping;
     }
 
     for (const auto& item : request["uniforms"]) {
