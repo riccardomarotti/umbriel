@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 
 extern "C" {
 #include <wlr/backend/session.h>
@@ -56,6 +57,37 @@ namespace umbriel {
     }
     return lastPresentNs + (nowNs - lastPresentNs) / refreshNs * refreshNs;
   }
+
+  // Estimate receipt-to-display latency from actual presentations of distinct live
+  // input snapshots. Excludes IMU callback age and IPC delivery; the producer
+  // predicts from its sample timestamp using those separately. A small running
+  // average absorbs frame phase variation without assuming an output refresh rate.
+  class EffectPresentationDelay {
+  public:
+    void observe(uint64_t sequence, uint64_t receivedNs, uint64_t presentedNs) {
+      if (sequence == 0 || sequence == m_lastSequence || presentedNs <= receivedNs) {
+        return;
+      }
+      const uint64_t observed = presentedNs - receivedNs;
+      // Reject stalled or otherwise implausibly late frames: extrapolating from
+      // them can be worse than displaying the current unpredicted orientation.
+      constexpr uint64_t kMaximumMeasuredDelayNs = 50'000'000ULL;
+      if (observed > kMaximumMeasuredDelayNs) {
+        return;
+      }
+      constexpr uint64_t kSmoothingSamples = 8;
+      m_estimateNs = m_estimateNs
+          ? ((*m_estimateNs * (kSmoothingSamples - 1)) + observed) / kSmoothingSamples
+          : observed;
+      m_lastSequence = sequence;
+    }
+
+    std::optional<uint64_t> estimateNs() const { return m_estimateNs; }
+
+  private:
+    std::optional<uint64_t> m_estimateNs;
+    uint64_t m_lastSequence = 0;
+  };
 
   // An asynchronous page flip can pass the backend test and still fail at commit time. The generic frame retry must
   // submit one fresh regular state before another asynchronous attempt, otherwise a backend rejection can become a
