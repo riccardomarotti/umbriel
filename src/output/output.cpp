@@ -307,7 +307,7 @@ namespace umbriel {
         ? m_server->ipc()->liveUniformsForOutput(m_output->name) : nullptr;
     m_liveEffectAttached = live != nullptr && screen != nullptr;
     if (!m_liveEffectAttached) {
-      m_effectPresentationDelay.reset();
+      resetLivePoseTiming();
     }
     if (m_liveEffectAttached) {
       m_preparedInputMapping = live->inputMapping;
@@ -2546,6 +2546,11 @@ namespace umbriel {
               && probe.receivedMonotonicNs <= pending->frameStartMonotonicNs
               && pending->frameStartMonotonicNs <= pending->commitMonotonicNs
               && pending->commitMonotonicNs <= displayedNs) {
+            // Record only the first presentation for a producer sequence;
+            // repeat frames can legitimately reuse the same pose snapshot.
+            if (!m_lastPresentedLivePose || (*m_lastPresentedLivePose)[0] != probe.sequence) {
+              m_lastPresentedLivePose = std::array<uint64_t, 2>{probe.sequence, displayedNs};
+            }
             m_effectPresentationDelay.observe(probe.sequence, probe.receivedMonotonicNs, displayedNs);
             const double sampleMs = static_cast<double>(displayedNs - probe.sampleMonotonicNs) / 1e6;
             const double ipcMs = static_cast<double>(probe.receivedMonotonicNs - probe.sentMonotonicNs) / 1e6;
