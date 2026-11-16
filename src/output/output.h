@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <sys/types.h>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -29,6 +30,7 @@ struct wlr_output_layout_output;
 struct wlr_scene_rect;
 struct wlr_scene_output;
 struct wlr_scene_optimized_blur;
+struct fx_animation_parameters;
 struct wlr_scene_tree;
 struct wlr_surface;
 
@@ -93,6 +95,9 @@ namespace umbriel {
     // Asks for a frame on behalf of persistent effects.
     void scheduleEffectFrame();
     void scheduleAudioFrame();
+    // Private, same-user datagram endpoint for optional late-screen-pose snapshots.
+    // Empty when the output could not establish a socket.
+    const std::string& latePoseSocketPath() const { return m_latePoseSocketPath; }
     // Measured mean latency from live-input IPC acceptance to actual display.
     // Available only after opt-in producer samples have been presented.
     std::optional<uint64_t> estimatedLivePresentationDelayNs() const {
@@ -376,6 +381,10 @@ namespace umbriel {
       uint64_t commitMonotonicNs = 0;
     };
     std::optional<EffectInputMapping> m_preparedInputMapping;
+    int m_latePoseSocketFd = -1;
+    std::string m_latePoseSocketPath;
+    static void lateLatchScreenPose(void* context, fx_animation_parameters* parameters);
+    void applyLatePose(fx_animation_parameters* parameters);
     std::optional<EffectLatencyProbe> m_preparedLatencyProbe;
     EffectPresentationDelay m_effectPresentationDelay;
     std::optional<std::array<uint64_t, 2>> m_lastPresentedLivePose;
