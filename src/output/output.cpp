@@ -306,6 +306,9 @@ namespace umbriel {
     const LiveEffectUniforms* live = m_server->ipc() != nullptr
         ? m_server->ipc()->liveUniformsForOutput(m_output->name) : nullptr;
     m_liveEffectAttached = live != nullptr && screen != nullptr;
+    if (!m_liveEffectAttached) {
+      m_effectPresentationDelay.reset();
+    }
     if (m_liveEffectAttached) {
       m_preparedInputMapping = live->inputMapping;
       m_preparedLatencyProbe = live->latencyProbe;
