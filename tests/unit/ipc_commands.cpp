@@ -676,3 +676,40 @@ UMBRIEL_TEST(liveUniformInputMappingRequiresVersion2) {
   request["input_mapping"] = {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0};
   CHECK(!umbriel::IpcCommands::parseLiveEffectUniforms(request).has_value());
 }
+
+// Opt-in diagnostics must not weaken the strict v1/v2 request schemas.
+UMBRIEL_TEST(liveUniformLatencyProbeIsStrictAndOptional) {
+  nlohmann::json request = {
+      {"cmd", "effect-uniforms"},
+      {"version", 2},
+      {"kind", "screen"},
+      {"output", "HEADLESS-1"},
+      {"uniforms", nlohmann::json::array({{{"name", "level"}, {"type", "float"}, {"value", 0.5}}})},
+      {"input_mapping", {1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0}},
+  };
+  CHECK(umbriel::IpcCommands::parseLiveEffectUniforms(request).has_value());
+  request["latency_probe"] = {{"seq", uint64_t{7}}, {"sample_ns", uint64_t{1200}}, {"sent_ns", uint64_t{1400}}};
+  const auto valid = umbriel::IpcCommands::parseLiveEffectUniforms(request);
+  CHECK(valid.has_value());
+  CHECK(valid && valid->latencyProbe.has_value());
+  if (valid && valid->latencyProbe) {
+    CHECK_EQ(valid->latencyProbe->sequence, 7U);
+    CHECK_EQ(valid->latencyProbe->sampleMonotonicNs, 1200U);
+    CHECK_EQ(valid->latencyProbe->sentMonotonicNs, 1400U);
+  }
+  auto invalid = request;
+  invalid["version"] = 1;
+  CHECK(!umbriel::IpcCommands::parseLiveEffectUniforms(invalid).has_value());
+  invalid = request;
+  invalid["latency_probe"]["sample_ns"] = -1;
+  CHECK(!umbriel::IpcCommands::parseLiveEffectUniforms(invalid).has_value());
+  invalid = request;
+  invalid["latency_probe"]["sent_ns"] = uint64_t{1000};
+  CHECK(!umbriel::IpcCommands::parseLiveEffectUniforms(invalid).has_value());
+  invalid = request;
+  invalid["latency_probe"]["extra"] = 1;
+  CHECK(!umbriel::IpcCommands::parseLiveEffectUniforms(invalid).has_value());
+  invalid = request;
+  invalid["unexpected"] = true;
+  CHECK(!umbriel::IpcCommands::parseLiveEffectUniforms(invalid).has_value());
+}
