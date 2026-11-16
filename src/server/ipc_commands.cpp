@@ -201,7 +201,8 @@ namespace umbriel {
 
   std::optional<LiveEffectUniforms> IpcCommands::parseLiveEffectUniforms(const nlohmann::json& request) {
     if (!request.is_object() || request.size() != 5
-        || request.value("cmd", std::string{}) != "effect-uniforms"
+        || !request.contains("cmd") || !request["cmd"].is_string()
+        || request["cmd"] != "effect-uniforms"
         || !request.contains("version") || !request["version"].is_number_integer()
         || request["version"] != 1 || !request.contains("kind")
         || !request["kind"].is_string() || request["kind"] != "screen"
