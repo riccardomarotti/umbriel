@@ -16,6 +16,7 @@
 #include "output/output.h"
 #include "overview/overview.h"
 #include "scene/cheatsheet.h"
+#include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
 #include "scene/ssd_frame.h"
@@ -2415,8 +2416,8 @@ namespace umbriel {
     if (m_server->sessionLocked() || m_server->effects().ledger().suspended()) {
       return std::pair{x, y};
     }
-    const wlr_output* wlrOutput = wlr_output_layout_output_at(m_server->outputLayout(), x, y);
-    const Output* output = m_server->outputFromWlr(const_cast<wlr_output*>(wlrOutput));
+    wlr_output* wlrOutput = wlr_output_layout_output_at(m_server->outputLayout(), x, y);
+    const Output* output = m_server->outputFromWlr(wlrOutput);
     if (output == nullptr || !output->screenEffectActive() || m_server->ipc() == nullptr) {
       return std::pair{x, y};
     }
