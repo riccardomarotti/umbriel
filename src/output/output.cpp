@@ -279,6 +279,12 @@ namespace umbriel {
     return m_effectAudio != m_server->effects().audio() && wlr_scene_output_audio_active(m_sceneOutput);
   }
 
+  bool Output::screenEffectActive() const {
+    const EffectRegistry& registry = m_server->effects();
+    return m_output->enabled && !registry.ledger().suspended()
+        && registry.preset(m_screenEffectSlot.effectiveName(), EffectKind::Screen) != nullptr;
+  }
+
   void Output::applyOutputEffects() {
     EffectRegistry& registry = m_server->effects();
     const Effects& settings = config().effects;
