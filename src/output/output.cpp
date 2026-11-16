@@ -2543,6 +2543,7 @@ namespace umbriel {
               && probe.receivedMonotonicNs <= pending->frameStartMonotonicNs
               && pending->frameStartMonotonicNs <= pending->commitMonotonicNs
               && pending->commitMonotonicNs <= displayedNs) {
+            m_effectPresentationDelay.observe(probe.sequence, probe.receivedMonotonicNs, displayedNs);
             const double sampleMs = static_cast<double>(displayedNs - probe.sampleMonotonicNs) / 1e6;
             const double ipcMs = static_cast<double>(probe.receivedMonotonicNs - probe.sentMonotonicNs) / 1e6;
             const double waitMs = static_cast<double>(pending->frameStartMonotonicNs - probe.receivedMonotonicNs) / 1e6;
