@@ -93,6 +93,11 @@ namespace umbriel {
     // Asks for a frame on behalf of persistent effects.
     void scheduleEffectFrame();
     void scheduleAudioFrame();
+    // Measured mean latency from live-input IPC acceptance to actual display.
+    // Available only after opt-in producer samples have been presented.
+    std::optional<uint64_t> estimatedLivePresentationDelayNs() const {
+      return m_effectPresentationDelay.estimateNs();
+    }
     // Pushes the effect capture policy and the screen and cursor presets to this output's scene. Detached while
     // effects are suspended; the instances are visible only while the output is enabled.
     void applyOutputEffects();
@@ -363,6 +368,7 @@ namespace umbriel {
     };
     std::optional<EffectInputMapping> m_preparedInputMapping;
     std::optional<EffectLatencyProbe> m_preparedLatencyProbe;
+    EffectPresentationDelay m_effectPresentationDelay;
     uint64_t m_latencyLastReportMonotonicNs = 0;
     uint64_t m_latencyCount = 0;
     double m_latencySumSampleMs = 0.0;
