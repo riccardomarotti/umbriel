@@ -93,6 +93,8 @@ namespace umbriel {
     // Pushes the effect capture policy and the screen and cursor presets to this output's scene. Detached while
     // effects are suspended; the instances are visible only while the output is enabled.
     void applyOutputEffects();
+    // Whether a screen shader is currently selected, compiled and unsuspended.
+    bool screenEffectActive() const;
     EffectSlot& screenEffectSlot() { return m_screenEffectSlot; }
     const EffectSlot& screenEffectSlot() const { return m_screenEffectSlot; }
     // Captures are released only by a built frame: asks for one when the last frame kept effects out of a capture.
