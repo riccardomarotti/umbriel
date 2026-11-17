@@ -95,6 +95,10 @@ namespace umbriel {
     // Asks for a frame on behalf of persistent effects.
     void scheduleEffectFrame();
     void scheduleAudioFrame();
+    // Experimental render-phase shift in milliseconds, 0..4; live late
+    // pose effects only. Adjustable at runtime without compositor restart.
+    bool setFramePhaseDelay(uint32_t delayMs);
+    uint32_t framePhaseDelay() const { return m_framePhaseDelayMs; }
     // Private, same-user datagram endpoint for optional late-screen-pose snapshots.
     // Empty when the output could not establish a socket.
     const std::string& latePoseSocketPath() const { return m_latePoseSocketPath; }
