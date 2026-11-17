@@ -309,6 +309,29 @@ namespace umbriel {
     return rule != nullptr ? rule->enabled : outputCanAutoEnable(m_output);
   }
 
+  bool Output::setFramePhaseDelay(uint32_t delayMs) {
+    if (delayMs > 4) {
+      return false;
+    }
+    if (delayMs > 0 && m_framePhaseTimer == nullptr) {
+      m_framePhaseTimer = wl_event_loop_add_timer(
+          wl_display_get_event_loop(m_server->display()), onFramePhaseTimer, this
+      );
+      if (m_framePhaseTimer == nullptr) {
+        return false;
+      }
+    }
+    m_framePhaseDelayMs = delayMs;
+    // A frame already waiting on the timer must still be rendered once.
+    // Leaving it armed avoids dropping an output frame while switching off.
+    m_phaseLastPresentedSeq = 0;
+    m_phaseLastPresentNs = 0;
+    m_phaseFrames = 0;
+    m_phaseMissedVblanks = 0;
+    kLog.info("output '{}': late frame phase={} ms (only for active late-pose effect)", m_output->name, delayMs);
+    return true;
+  }
+
   void Output::scheduleEffectFrame() {
     if (m_handlingFrame) {
       return; // handleFrame arms the next effect frame after its tick
