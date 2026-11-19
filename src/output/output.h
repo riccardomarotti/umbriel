@@ -383,6 +383,9 @@ namespace umbriel {
     std::optional<EffectInputMapping> m_preparedInputMapping;
     int m_latePoseSocketFd = -1;
     std::string m_latePoseSocketPath;
+    uint64_t m_latePoseLastReportNs = 0;
+    uint64_t m_latePoseFrames = 0;
+    double m_latePoseAgeSumMs = 0.0;
     static void lateLatchScreenPose(void* context, fx_animation_parameters* parameters);
     void applyLatePose(fx_animation_parameters* parameters);
     std::optional<EffectLatencyProbe> m_preparedLatencyProbe;
