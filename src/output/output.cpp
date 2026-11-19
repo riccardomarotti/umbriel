@@ -45,6 +45,9 @@ extern "C" {
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <cstddef>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <drm_fourcc.h>
 #include <fcntl.h>
 #include <format>
@@ -191,6 +194,31 @@ namespace umbriel {
     }
     wlr_scene_output_set_direct_scanout_enabled(m_sceneOutput, configuredDirectScanoutEnabled());
 
+    // Private nonblocking late-pose socket: owner-only runtime directory.
+    if (const char* runtime = std::getenv("XDG_RUNTIME_DIR"); runtime != nullptr) {
+      const std::string path = std::format("{}/umbriel-late-{}-{}.sock", runtime, getpid(), m_output->name);
+      sockaddr_un address{};
+      if (path.size() < sizeof(address.sun_path)) {
+        const int fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+        if (fd >= 0) {
+          address.sun_family = AF_UNIX;
+          std::memcpy(address.sun_path, path.c_str(), path.size() + 1);
+          if (bind(fd, reinterpret_cast<const sockaddr*>(&address),
+                   static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + path.size() + 1)) == 0) {
+            if (chmod(path.c_str(), 0600) == 0) {
+              m_latePoseSocketFd = fd;
+              m_latePoseSocketPath = path;
+            } else {
+              unlink(path.c_str());
+              close(fd);
+            }
+          } else {
+            close(fd);
+          }
+        }
+      }
+    }
+
     m_frame.notify = onFrame;
     wl_signal_add(&m_output->events.frame, &m_frame);
 
@@ -261,6 +289,86 @@ namespace umbriel {
     wlr_output_schedule_frame(m_output);
   }
 
+  struct LatePoseDatagram {
+    uint32_t version;
+    uint32_t sequence;
+    uint64_t sampleNs;
+    uint64_t sentNs;
+    float orientation[4];
+    double matrix[9];
+  };
+  static_assert(sizeof(LatePoseDatagram) == 112);
+
+  void Output::lateLatchScreenPose(void* context, fx_animation_parameters* parameters) {
+    static_cast<Output*>(context)->applyLatePose(parameters);
+  }
+
+  void Output::applyLatePose(fx_animation_parameters* parameters) {
+    if (m_latePoseSocketFd < 0 || !m_liveEffectAttached || m_server->sessionLocked()) {
+      return;
+    }
+    LatePoseDatagram packet{};
+    LatePoseDatagram newest{};
+    bool found = false;
+    // Never block the compositor and bound the work per frame.
+    for (unsigned i = 0; i < 64; ++i) {
+      const ssize_t count = recv(m_latePoseSocketFd, &packet, sizeof(packet), MSG_DONTWAIT | MSG_TRUNC);
+      if (count < 0) {
+        break;
+      }
+      if (count == sizeof(packet) && packet.version == 1 && (!found || packet.sequence > newest.sequence)) {
+        newest = packet;
+        found = true;
+      }
+    }
+    if (!found) {
+      return;
+    }
+    timespec now{};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    const uint64_t nowNs = static_cast<uint64_t>(now.tv_sec) * 1'000'000'000ULL
+        + static_cast<uint64_t>(now.tv_nsec);
+    if (!newest.sampleNs || newest.sentNs < newest.sampleNs || newest.sentNs > nowNs
+        || nowNs - newest.sampleNs > 100'000'000ULL) {
+      return;
+    }
+    double norm = 0.0;
+    for (float component : newest.orientation) {
+      if (!std::isfinite(component)) {
+        return;
+      }
+      norm += static_cast<double>(component) * component;
+    }
+    if (norm < 0.5 || norm > 1.5) {
+      return;
+    }
+    EffectInputMapping mapping;
+    std::copy(std::begin(newest.matrix), std::end(newest.matrix), mapping.matrix.begin());
+    if (!mapping.valid()) {
+      return;
+    }
+    bool updated = false;
+    for (unsigned i = 0; i < parameters->uniform_count; ++i) {
+      fx_uniform& uniform = parameters->uniforms[i];
+      if (std::strcmp(uniform.name, "orametra_orientation") == 0
+          && uniform.type == FX_UNIFORM_VEC4 && uniform.count == 1) {
+        std::copy(std::begin(newest.orientation), std::end(newest.orientation), uniform.floats);
+        updated = true;
+        break;
+      }
+    }
+    if (!updated) {
+      return;
+    }
+    m_preparedInputMapping = mapping;
+    m_preparedLatencyProbe = EffectLatencyProbe{
+        .sequence = newest.sequence,
+        .sampleMonotonicNs = newest.sampleNs,
+        .sentMonotonicNs = newest.sentNs,
+        .receivedMonotonicNs = nowNs,
+    };
+  }
+
   void Output::scheduleAudioFrame() {
     if (m_server->sessionLocked() || !outputFrameAllowed(m_server->stopping(), m_server->session())) {
       m_effectAudio = {};
@@ -313,6 +421,11 @@ namespace umbriel {
       m_preparedInputMapping = live->inputMapping;
       m_preparedLatencyProbe = live->latencyProbe;
     }
+    wlr_scene_output_set_screen_effect_late_latch(
+        m_sceneOutput,
+        m_liveEffectAttached && m_latePoseSocketFd >= 0 ? &Output::lateLatchScreenPose : nullptr,
+        this
+    );
     // Register demand after the cursor program and motion history have been updated.
     const auto bind = [&](const void* owner, fx_effect_shader* shader, bool visible) {
       const bool motion = fx_effect_shader_reads(shader, "umbriel_pointer_history")
@@ -1582,6 +1695,12 @@ namespace umbriel {
   }
 
   Output::~Output() {
+    wlr_scene_output_set_screen_effect_late_latch(m_sceneOutput, nullptr, nullptr);
+    if (m_latePoseSocketFd >= 0) {
+      close(m_latePoseSocketFd);
+      m_latePoseSocketFd = -1;
+      unlink(m_latePoseSocketPath.c_str());
+    }
     if (m_backgroundPopupUpdate.link.next != nullptr) {
       wl_list_remove(&m_backgroundPopupUpdate.link);
       m_backgroundPopupUpdate.link.next = nullptr;
@@ -2544,7 +2663,7 @@ namespace umbriel {
           // The event marks presentation, not the exact moment each scanned-out pixel became visible.
           if (probe.sampleMonotonicNs <= probe.sentMonotonicNs
               && probe.sentMonotonicNs <= probe.receivedMonotonicNs
-              && probe.receivedMonotonicNs <= pending->frameStartMonotonicNs
+              && probe.receivedMonotonicNs <= pending->commitMonotonicNs
               && pending->frameStartMonotonicNs <= pending->commitMonotonicNs
               && pending->commitMonotonicNs <= displayedNs) {
             // Record only the first presentation for a producer sequence;
@@ -2555,7 +2674,8 @@ namespace umbriel {
             m_effectPresentationDelay.observe(probe.sequence, probe.receivedMonotonicNs, displayedNs);
             const double sampleMs = static_cast<double>(displayedNs - probe.sampleMonotonicNs) / 1e6;
             const double ipcMs = static_cast<double>(probe.receivedMonotonicNs - probe.sentMonotonicNs) / 1e6;
-            const double waitMs = static_cast<double>(pending->frameStartMonotonicNs - probe.receivedMonotonicNs) / 1e6;
+            const double waitMs = pending->frameStartMonotonicNs > probe.receivedMonotonicNs
+                ? static_cast<double>(pending->frameStartMonotonicNs - probe.receivedMonotonicNs) / 1e6 : 0.0;
             const double frameMs = static_cast<double>(pending->commitMonotonicNs - pending->frameStartMonotonicNs) / 1e6;
             const double presentMs = static_cast<double>(displayedNs - pending->commitMonotonicNs) / 1e6;
             ++m_latencyCount;
