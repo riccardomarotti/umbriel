@@ -703,6 +703,27 @@ namespace umbriel {
       return R"({"err":"malformed request"})";
     }
     const std::string cmd = req["cmd"].get<std::string>();
+    if (cmd == "effect-frame-phase") {
+      if (!req.contains("output") || !req["output"].is_string()
+          || !req.contains("delay_ms") || !req["delay_ms"].is_number_unsigned()
+          || req.size() != 3) {
+        return R"({"err":"effect-frame-phase requires output and delay_ms (0..4)"})";
+      }
+      const std::string outputName = req["output"].get<std::string>();
+      const uint64_t delay = req["delay_ms"].get<uint64_t>();
+      if (delay > 4) {
+        return R"({"err":"delay_ms must be 0..4"})";
+      }
+      for (const auto& output : m_server->outputs()) {
+        if (output->wlr()->name != nullptr && outputName == output->wlr()->name) {
+          if (!output->setFramePhaseDelay(static_cast<uint32_t>(delay))) {
+            return R"({"err":"could not configure output frame timer"})";
+          }
+          return nlohmann::json{{"ok", true}, {"output", outputName}, {"delay_ms", delay}}.dump();
+        }
+      }
+      return R"({"err":"unknown output"})";
+    }
     if (cmd == "screencast-session") {
       const auto active = req.find("active");
       if (active == req.end() || !active->is_boolean()) {
