@@ -260,6 +260,7 @@ namespace umbriel {
     static void onBackgroundPopupUpdate(wl_listener* listener, void* data);
     static void onDestroy(wl_listener* listener, void* data);
     static int onFrameRetryTimer(void* data);
+    static int onFramePhaseTimer(void* data);
     static int onEffectFrameTimer(void* data);
     static int onDirectScanoutTimer(void* data);
 
@@ -361,6 +362,13 @@ namespace umbriel {
     uint64_t m_refreshNs = 0;
     bool m_appliedConfiguredScale = false;
     wl_event_source* m_frameRetryTimer = nullptr;
+    wl_event_source* m_framePhaseTimer = nullptr;
+    uint32_t m_framePhaseDelayMs = 0;
+    bool m_framePhasePending = false;
+    uint64_t m_phaseLastPresentNs = 0;
+    uint64_t m_phaseLastPresentedSeq = 0;
+    uint64_t m_phaseFrames = 0;
+    uint64_t m_phaseMissedVblanks = 0;
     wl_event_source* m_effectFrameTimer = nullptr;
     wl_event_source* m_directScanoutTimer = nullptr;
     DirectScanoutTracker m_directScanout;
