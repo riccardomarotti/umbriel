@@ -227,6 +227,11 @@ typedef void (*fx_screen_effect_late_latch_fn)(void* data, struct fx_animation_p
 void wlr_scene_output_set_screen_effect_late_latch(
     struct wlr_scene_output* output, fx_screen_effect_late_latch_fn callback, void* data
 );
+// Experimental per-output option: draw the wlroots software cursor before
+// the screen post-process, so it undergoes the same screen transformation.
+// The caller must force software cursors on the output while enabled.
+// The independent cursor-effect shader still renders after the screen effect.
+void wlr_scene_output_set_screen_effect_transform_cursor(struct wlr_scene_output* output, bool enabled);
 void wlr_scene_output_set_cursor_effect(
     struct wlr_scene_output* output, struct fx_effect_shader* shader, const struct fx_animation_parameters* parameters,
     int radius
