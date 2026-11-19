@@ -44,7 +44,7 @@ makedepends=(
 )
 provides=('umbriel')
 conflicts=('umbriel' 'umbriel-git')
-source=('umbriel::git+https://github.com/riccardomarotti/umbriel.git#branch=feature/realtime-effect-input')
+source=('umbriel::git+https://github.com/riccardomarotti/umbriel.git#branch=feature/generic-effect-input-mapping')
 b2sums=('SKIP')
 
 pkgver() {
