@@ -259,6 +259,13 @@ namespace umbriel {
         }
       }
     }
+    // Local experiment only. Scope the cursor pre-warp to the named output,
+    // and activate it solely while Orametra's live screen shader is running.
+    if (const char* cursorOutput = std::getenv("UMBRIEL_WARP_CURSOR_OUTPUT");
+        cursorOutput != nullptr && std::string_view(cursorOutput) == m_output->name) {
+      m_transformCursorOptIn = true;
+      kLog.info("output '{}': experimental world-locked software cursor armed", m_output->name);
+    }
     m_frameRetryTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onFrameRetryTimer, this);
     m_directScanoutTimer =
@@ -489,6 +496,14 @@ namespace umbriel {
         m_liveEffectAttached && m_latePoseSocketFd >= 0 ? &Output::lateLatchScreenPose : nullptr,
         this
     );
+    const bool transformCursor = m_transformCursorOptIn && m_liveEffectAttached
+        && screenName == "orametra" && !m_server->sessionLocked();
+    if (transformCursor != m_transformCursorWithScreen) {
+      m_transformCursorWithScreen = transformCursor;
+      applyCursorConfig(); // Force software cursor only while pre-warp is active.
+      kLog.info("output '{}': world-locked cursor {}", m_output->name, transformCursor ? "enabled" : "disabled");
+    }
+    wlr_scene_output_set_screen_effect_transform_cursor(m_sceneOutput, transformCursor);
     // Register demand after the cursor program and motion history have been updated.
     const auto bind = [&](const void* owner, fx_effect_shader* shader, bool visible) {
       const bool motion = fx_effect_shader_reads(shader, "umbriel_pointer_history")
@@ -1726,7 +1741,7 @@ namespace umbriel {
   }
 
   void Output::applyCursorConfig() {
-    const bool lockSoftwareCursor = !config().input.cursor.hardwareCursor;
+    const bool lockSoftwareCursor = !config().input.cursor.hardwareCursor || m_transformCursorWithScreen;
     if (lockSoftwareCursor == m_softwareCursorLocked) {
       return;
     }
