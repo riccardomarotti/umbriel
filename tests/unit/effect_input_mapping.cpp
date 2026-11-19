@@ -57,3 +57,5 @@ UMBRIEL_TEST(effectInputRejectsInvalid) {
   CHECK(!m.sourceAt(1.1, 0.5).has_value());
   CHECK(!m.sourceAt(0.5, std::numeric_limits<double>::infinity()).has_value());
 }
+
+int main() { return RUN_TESTS(); }
