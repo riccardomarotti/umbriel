@@ -649,6 +649,11 @@ namespace umbriel {
       // Rendering is paced by the output; multiple incoming snapshots replace
       // the pending value and do not allocate a queue of compositor frames.
       target->scheduleEffectFrame();
+      if (snapshot->latencyProbe) {
+        if (const auto estimate = target->estimatedLivePresentationDelayNs()) {
+          return nlohmann::json{{"ok", true}, {"presentation_delay_ns", *estimate}}.dump();
+        }
+      }
       return R"({"ok":true})";
     }
     if (&connection == m_audio || (req.is_object() && req.contains("cmd") && req["cmd"] == "effect-audio")) {
