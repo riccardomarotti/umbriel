@@ -707,7 +707,7 @@ namespace umbriel {
       if (!req.contains("output") || !req["output"].is_string()
           || !req.contains("delay_ms") || !req["delay_ms"].is_number_unsigned()
           || req.size() != 3) {
-        return R"({"err":"effect-frame-phase requires output and delay_ms (0..4)"})";
+        return nlohmann::json{{"err", "effect-frame-phase requires output and delay_ms (0..4)"}}.dump();
       }
       const std::string outputName = req["output"].get<std::string>();
       const uint64_t delay = req["delay_ms"].get<uint64_t>();
