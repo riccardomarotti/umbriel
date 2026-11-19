@@ -98,6 +98,15 @@ namespace umbriel {
     std::optional<uint64_t> estimatedLivePresentationDelayNs() const {
       return m_effectPresentationDelay.estimateNs();
     }
+    // The first actual presentation of the latest unique live-input pose:
+    // [producer sequence, CLOCK_MONOTONIC presentation timestamp]. Diagnostic only.
+    std::optional<std::array<uint64_t, 2>> lastPresentedLivePose() const {
+      return m_lastPresentedLivePose;
+    }
+    void resetLivePoseTiming() {
+      m_lastPresentedLivePose.reset();
+      m_effectPresentationDelay.reset();
+    }
     // Pushes the effect capture policy and the screen and cursor presets to this output's scene. Detached while
     // effects are suspended; the instances are visible only while the output is enabled.
     void applyOutputEffects();
@@ -369,6 +378,7 @@ namespace umbriel {
     std::optional<EffectInputMapping> m_preparedInputMapping;
     std::optional<EffectLatencyProbe> m_preparedLatencyProbe;
     EffectPresentationDelay m_effectPresentationDelay;
+    std::optional<std::array<uint64_t, 2>> m_lastPresentedLivePose;
     uint64_t m_latencyLastReportMonotonicNs = 0;
     uint64_t m_latencyCount = 0;
     double m_latencySumSampleMs = 0.0;
