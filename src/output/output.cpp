@@ -231,6 +231,34 @@ namespace umbriel {
     m_destroy.notify = onDestroy;
     wl_signal_add(&m_output->events.destroy, &m_destroy);
 
+    // Experimental render-phase offset, scoped explicitly to one output.
+    // Opt-in via environment when launching the compositor; not a global
+    // delay, and never blocks the Wayland event loop.
+    if (const char* outputName = std::getenv("UMBRIEL_LATE_FRAME_OUTPUT");
+        outputName != nullptr && std::string_view(outputName) == m_output->name) {
+      if (const char* delayText = std::getenv("UMBRIEL_LATE_FRAME_DELAY_MS"); delayText != nullptr) {
+        char* end = nullptr;
+        const long value = std::strtol(delayText, &end, 10);
+        if (end != delayText && *end == '\0' && value >= 0 && value <= 4) {
+          m_framePhaseDelayMs = static_cast<uint32_t>(value);
+          if (m_framePhaseDelayMs > 0) {
+            m_framePhaseTimer = wl_event_loop_add_timer(
+                wl_display_get_event_loop(m_server->display()), onFramePhaseTimer, this
+            );
+            if (m_framePhaseTimer != nullptr) {
+              kLog.info("output '{}': experimental late-frame phase={} ms (only when live effect is attached)",
+                        m_output->name, m_framePhaseDelayMs);
+            } else {
+              kLog.warn("output '{}': could not create late-frame timer; disabled", m_output->name);
+              m_framePhaseDelayMs = 0;
+            }
+          }
+        } else {
+          kLog.warn("output '{}': invalid UMBRIEL_LATE_FRAME_DELAY_MS '{}'; expected 0..4",
+                    m_output->name, delayText);
+        }
+      }
+    }
     m_frameRetryTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onFrameRetryTimer, this);
     m_directScanoutTimer =
@@ -1722,6 +1750,11 @@ namespace umbriel {
       wl_list_remove(&m_backgroundUpdate.link);
       m_backgroundUpdate.link.next = nullptr;
     }
+    if (m_framePhaseTimer != nullptr) {
+      wl_event_source_remove(m_framePhaseTimer);
+      m_framePhaseTimer = nullptr;
+      m_framePhasePending = false;
+    }
     if (m_frameRetryTimer != nullptr) {
       wl_event_source_remove(m_frameRetryTimer);
       m_frameRetryTimer = nullptr;
@@ -1962,7 +1995,33 @@ namespace umbriel {
   void Output::onFrame(wl_listener* listener, void* /*data*/) {
     Output* self;
     self = wl_container_of(listener, self, m_frame);
+    if (self->m_framePhaseTimer != nullptr && self->m_framePhaseDelayMs > 0
+        && self->m_liveEffectAttached && self->m_latePoseSocketFd >= 0
+        && !self->m_server->sessionLocked()
+        && outputFrameAllowed(self->m_server->stopping(), self->m_server->session())) {
+      // Delay the whole composition by a bounded offset. The main event loop
+      // remains responsive to fresh SDK datagrams; the last screen pass reads
+      // the newest pose immediately before submission.
+      if (!self->m_framePhasePending) {
+        self->m_framePhasePending = true;
+        if (wl_event_source_timer_update(self->m_framePhaseTimer, self->m_framePhaseDelayMs) >= 0) {
+          return;
+        }
+        self->m_framePhasePending = false;
+      } else {
+        return; // One pending frame per output, never build two concurrently.
+      }
+    }
     self->handleFrame();
+  }
+
+  int Output::onFramePhaseTimer(void* data) {
+    auto* output = static_cast<Output*>(data);
+    output->m_framePhasePending = false;
+    if (outputFrameAllowed(output->m_server->stopping(), output->m_server->session())) {
+      output->handleFrame();
+    }
+    return 0;
   }
 
   void Output::onBackgroundUpdate(wl_listener* listener, void* /*data*/) {
@@ -2652,6 +2711,24 @@ namespace umbriel {
           ? static_cast<uint64_t>(event->when.tv_sec) * 1'000'000'000 + static_cast<uint64_t>(event->when.tv_nsec)
           : 0;
       m_refreshNs = fixedRefresh ? static_cast<uint64_t>(event->refresh) : 0;
+      if (m_framePhaseDelayMs > 0 && m_liveEffectAttached && event->seq > 0) {
+        ++m_phaseFrames;
+        if (m_phaseLastPresentedSeq > 0 && event->seq > m_phaseLastPresentedSeq + 1) {
+          m_phaseMissedVblanks += event->seq - m_phaseLastPresentedSeq - 1;
+        }
+        m_phaseLastPresentedSeq = event->seq;
+        const uint64_t displayedNs = static_cast<uint64_t>(event->when.tv_sec) * 1'000'000'000ULL
+            + static_cast<uint64_t>(event->when.tv_nsec);
+        if (m_phaseLastPresentNs == 0) {
+          m_phaseLastPresentNs = displayedNs;
+        } else if (displayedNs > m_phaseLastPresentNs + 2'000'000'000ULL) {
+          kLog.info("frame phase '{}' delay={} ms presented={} missed-vblanks={} (hardware presentation sequence)",
+                    m_output->name, m_framePhaseDelayMs, m_phaseFrames, m_phaseMissedVblanks);
+          m_phaseFrames = 0;
+          m_phaseMissedVblanks = 0;
+          m_phaseLastPresentNs = displayedNs;
+        }
+      }
     }
     if (SessionLock* lock = m_server->sessionLock()) {
       lock->handleOutputPresent(*this, event->commit_seq, event->presented);
