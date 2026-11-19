@@ -1707,7 +1707,8 @@ namespace umbriel {
   }
 
   Output::~Output() {
-    wlr_scene_output_set_screen_effect_late_latch(m_sceneOutput, nullptr, nullptr);
+    // The scene-output addon owns the hook and is destroyed with the wlr
+    // output; do not dereference m_sceneOutput after its destroy event.
     if (m_latePoseSocketFd >= 0) {
       close(m_latePoseSocketFd);
       m_latePoseSocketFd = -1;
