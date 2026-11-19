@@ -349,7 +349,6 @@ namespace umbriel {
     bool m_gammaDirty = false;
     bool m_vrrPending = false; // a VRR change waiting for the next frame commit
     bool m_softwareCursorLocked = false;
-    bool m_transformCursorOptIn = false; // env-gated per-output experiment
     bool m_transformCursorWithScreen = false; // active only while Orametra supplies a live effect
     bool m_animationRenderLocked = false;
     bool m_fullscreenAboveTopLayer = false;
