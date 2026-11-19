@@ -328,7 +328,8 @@ namespace umbriel {
     clock_gettime(CLOCK_MONOTONIC, &now);
     const uint64_t nowNs = static_cast<uint64_t>(now.tv_sec) * 1'000'000'000ULL
         + static_cast<uint64_t>(now.tv_nsec);
-    if (!newest.sampleNs || newest.sentNs < newest.sampleNs || newest.sentNs > nowNs
+    if (!newest.sampleNs || newest.sampleNs > nowNs
+        || newest.sentNs < newest.sampleNs || newest.sentNs > nowNs
         || nowNs - newest.sampleNs > 100'000'000ULL) {
       return;
     }
@@ -2671,7 +2672,10 @@ namespace umbriel {
             if (!m_lastPresentedLivePose || (*m_lastPresentedLivePose)[0] != probe.sequence) {
               m_lastPresentedLivePose = std::array<uint64_t, 2>{probe.sequence, displayedNs};
             }
-            m_effectPresentationDelay.observe(probe.sequence, probe.receivedMonotonicNs, displayedNs);
+            // Predict from the latest SDK sample, not from the late-latch
+            // callback inside the renderer. Otherwise the feedback would
+            // underestimate the motion horizon by the sample's age.
+            m_effectPresentationDelay.observe(probe.sequence, probe.sampleMonotonicNs, displayedNs);
             const double sampleMs = static_cast<double>(displayedNs - probe.sampleMonotonicNs) / 1e6;
             const double ipcMs = static_cast<double>(probe.receivedMonotonicNs - probe.sentMonotonicNs) / 1e6;
             const double waitMs = pending->frameStartMonotonicNs > probe.receivedMonotonicNs
