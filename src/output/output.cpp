@@ -281,6 +281,7 @@ namespace umbriel {
 
   void Output::applyOutputEffects() {
     m_preparedInputMapping.reset();
+    m_preparedLatencyProbe.reset();
     EffectRegistry& registry = m_server->effects();
     const Effects& settings = config().effects;
     // Nothing configured: touch nothing (no addon, no scene calls). The registry's counts are zero too; a bound
@@ -307,6 +308,7 @@ namespace umbriel {
     m_liveEffectAttached = live != nullptr && screen != nullptr;
     if (m_liveEffectAttached) {
       m_preparedInputMapping = live->inputMapping;
+      m_preparedLatencyProbe = live->latencyProbe;
     }
     // Register demand after the cursor program and motion history have been updated.
     const auto bind = [&](const void* owner, fx_effect_shader* shader, bool visible) {
@@ -2084,6 +2086,10 @@ namespace umbriel {
       wl_event_source_timer_update(m_frameRetryTimer, 0);
     }
     m_handlingFrame = true;
+    timespec latencyFrameTime{};
+    clock_gettime(CLOCK_MONOTONIC, &latencyFrameTime);
+    const uint64_t frameStartNs = static_cast<uint64_t>(latencyFrameTime.tv_sec) * 1'000'000'000ULL
+        + static_cast<uint64_t>(latencyFrameTime.tv_nsec);
 
     flushDirty();
     if (m_hasDeferredMode) {
@@ -2361,7 +2367,18 @@ namespace umbriel {
         }
         if (commitOk && hasBuffer) {
           // The pointer mapping becomes active only when this buffer is presented.
-          m_pendingInputMappings.push_back({m_output->commit_seq, m_preparedInputMapping});
+          timespec latencyCommitTime{};
+          if (m_preparedLatencyProbe) {
+            clock_gettime(CLOCK_MONOTONIC, &latencyCommitTime);
+          }
+          m_pendingInputMappings.push_back({
+              m_output->commit_seq, m_preparedInputMapping, m_preparedLatencyProbe,
+              m_preparedLatencyProbe ? frameStartNs : 0,
+              m_preparedLatencyProbe
+                  ? static_cast<uint64_t>(latencyCommitTime.tv_sec) * 1'000'000'000ULL
+                      + static_cast<uint64_t>(latencyCommitTime.tv_nsec)
+                  : 0,
+          });
           constexpr size_t kMaxPendingMappingFrames = 32;
           if (m_pendingInputMappings.size() > kMaxPendingMappingFrames) {
             m_pendingInputMappings.pop_front();
@@ -2510,6 +2527,52 @@ namespace umbriel {
                                       });
     if (pending != m_pendingInputMappings.end()) {
       if (event->presented) {
+        if (pending->probe) {
+          timespec presentationCallback{};
+          clock_gettime(CLOCK_MONOTONIC, &presentationCallback);
+          const uint64_t callbackNs = static_cast<uint64_t>(presentationCallback.tv_sec) * 1'000'000'000ULL
+              + static_cast<uint64_t>(presentationCallback.tv_nsec);
+          const auto& probe = *pending->probe;
+          const uint64_t displayedNs = event->when.tv_sec > 0
+              ? static_cast<uint64_t>(event->when.tv_sec) * 1'000'000'000ULL
+                  + static_cast<uint64_t>(event->when.tv_nsec)
+              : callbackNs;
+          // Both the SDK callback receipt and wlroots presentation times use CLOCK_MONOTONIC.
+          // The event marks presentation, not the exact moment each scanned-out pixel became visible.
+          if (probe.sampleMonotonicNs <= probe.sentMonotonicNs
+              && probe.sentMonotonicNs <= probe.receivedMonotonicNs
+              && probe.receivedMonotonicNs <= pending->frameStartMonotonicNs
+              && pending->frameStartMonotonicNs <= pending->commitMonotonicNs
+              && pending->commitMonotonicNs <= displayedNs) {
+            const double sampleMs = static_cast<double>(displayedNs - probe.sampleMonotonicNs) / 1e6;
+            const double ipcMs = static_cast<double>(probe.receivedMonotonicNs - probe.sentMonotonicNs) / 1e6;
+            const double waitMs = static_cast<double>(pending->frameStartMonotonicNs - probe.receivedMonotonicNs) / 1e6;
+            const double frameMs = static_cast<double>(pending->commitMonotonicNs - pending->frameStartMonotonicNs) / 1e6;
+            const double presentMs = static_cast<double>(displayedNs - pending->commitMonotonicNs) / 1e6;
+            ++m_latencyCount;
+            m_latencySumSampleMs += sampleMs;
+            m_latencySumIpcMs += ipcMs;
+            m_latencySumWaitMs += waitMs;
+            m_latencySumFrameMs += frameMs;
+            m_latencySumPresentMs += presentMs;
+            m_latencyMaxSampleMs = std::max(m_latencyMaxSampleMs, sampleMs);
+            m_latencyMaxPresentMs = std::max(m_latencyMaxPresentMs, presentMs);
+            if (m_latencyLastReportMonotonicNs == 0) {
+              m_latencyLastReportMonotonicNs = callbackNs;
+            } else if (callbackNs - m_latencyLastReportMonotonicNs >= 1'000'000'000ULL) {
+              const double count = static_cast<double>(m_latencyCount);
+              kLog.info("latency '{}' frames={} sample-to-present mean={:.2f} max={:.2f} ms; ipc-to-accept={:.2f}, accept-to-frame={:.2f}, frame-to-commit={:.2f}, commit-to-present={:.2f} ms (means)",
+                        m_output->name, m_latencyCount, m_latencySumSampleMs / count, m_latencyMaxSampleMs,
+                        m_latencySumIpcMs / count, m_latencySumWaitMs / count, m_latencySumFrameMs / count,
+                        m_latencySumPresentMs / count);
+              m_latencyLastReportMonotonicNs = callbackNs;
+              m_latencyCount = 0;
+              m_latencySumSampleMs = m_latencySumIpcMs = m_latencySumWaitMs = 0.0;
+              m_latencySumFrameMs = m_latencySumPresentMs = 0.0;
+              m_latencyMaxSampleMs = m_latencyMaxPresentMs = 0.0;
+            }
+          }
+        }
         const bool changed = m_presentedInputMapping != pending->mapping;
         m_presentedInputMapping = pending->mapping;
         m_pendingInputMappings.erase(m_pendingInputMappings.begin(), pending + 1);
