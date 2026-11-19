@@ -361,6 +361,17 @@ namespace umbriel {
     if (!updated) {
       return;
     }
+    ++m_latePoseFrames;
+    m_latePoseAgeSumMs += static_cast<double>(nowNs - newest.sampleNs) / 1e6;
+    if (m_latePoseLastReportNs == 0) {
+      m_latePoseLastReportNs = nowNs;
+    } else if (nowNs - m_latePoseLastReportNs >= 2'000'000'000ULL) {
+      kLog.info("late pose '{}' frames={} SDK-sample-age-at-render mean={:.2f} ms",
+                m_output->name, m_latePoseFrames, m_latePoseAgeSumMs / m_latePoseFrames);
+      m_latePoseFrames = 0;
+      m_latePoseAgeSumMs = 0.0;
+      m_latePoseLastReportNs = nowNs;
+    }
     m_preparedInputMapping = mapping;
     m_preparedLatencyProbe = EffectLatencyProbe{
         .sequence = newest.sequence,
