@@ -121,6 +121,12 @@ namespace umbriel {
     void applyOutputEffects();
     // Matrix associated with the most recently displayed frame of this output.
     const EffectInputMapping* presentedInputMapping() const {
+      // When the cursor itself is screen-warped, raw scene coordinates already
+      // match its transformed image. Applying the inverse mapping again
+      // would make hover/click targets move away from the visible pointer.
+      if (m_transformCursorWithScreen) {
+        return nullptr;
+      }
       return m_presentedInputMapping ? &*m_presentedInputMapping : nullptr;
     }
     EffectSlot& screenEffectSlot() { return m_screenEffectSlot; }
@@ -343,6 +349,8 @@ namespace umbriel {
     bool m_gammaDirty = false;
     bool m_vrrPending = false; // a VRR change waiting for the next frame commit
     bool m_softwareCursorLocked = false;
+    bool m_transformCursorOptIn = false; // env-gated per-output experiment
+    bool m_transformCursorWithScreen = false; // active only while Orametra supplies a live effect
     bool m_animationRenderLocked = false;
     bool m_fullscreenAboveTopLayer = false;
     CursorPlaneState m_lastCursorPlane{};
