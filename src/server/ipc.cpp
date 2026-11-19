@@ -13,6 +13,7 @@
 #include <cerrno>
 #include <charconv>
 #include <cstdlib>
+#include <ctime>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
@@ -633,7 +634,14 @@ namespace umbriel {
         return R"({"err":"live effect input already owned"})";
       }
       connection.liveOutput = snapshot->output;
-      m_liveUniforms[connection.liveOutput] = {.owner = &connection, .snapshot = *snapshot};
+      LiveEffectUniforms accepted = *snapshot;
+      if (accepted.latencyProbe) {
+        timespec now{};
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        accepted.latencyProbe->receivedMonotonicNs = static_cast<uint64_t>(now.tv_sec) * 1'000'000'000ULL
+            + static_cast<uint64_t>(now.tv_nsec);
+      }
+      m_liveUniforms[connection.liveOutput] = {.owner = &connection, .snapshot = std::move(accepted)};
       if (wl_event_source_timer_update(connection.deadline, kLiveFreshnessMs) < 0) {
         dropLiveOwner(connection);
         return R"({"err":"live effect input deadline failed"})";
