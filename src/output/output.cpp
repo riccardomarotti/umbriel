@@ -280,11 +280,18 @@ namespace umbriel {
   }
 
   void Output::applyOutputEffects() {
+    m_preparedInputMapping.reset();
+    m_preparedCursorWithScreen = false;
     EffectRegistry& registry = m_server->effects();
     const Effects& settings = config().effects;
     // Nothing configured: touch nothing (no addon, no scene calls). The registry's counts are zero too; a bound
     // screen or cursor slot keeps a ledger instance, so it is still detached below.
     if (settings.presets.empty() && !registry.active() && !registry.persistentReferenced()) {
+      if (m_transformCursorWithScreen) {
+        m_transformCursorWithScreen = false;
+        wlr_scene_output_set_screen_effect_transform_cursor(m_sceneOutput, false);
+        applyCursorConfig();
+      }
       return;
     }
     wlr_scene_output_set_effect_capture_policy(m_sceneOutput, settings.inCapture);
@@ -304,6 +311,15 @@ namespace umbriel {
     const LiveEffectUniforms* live = m_server->ipc() != nullptr
         ? m_server->ipc()->liveUniformsForOutput(m_output->name) : nullptr;
     m_liveEffectAttached = live != nullptr && screen != nullptr;
+    if (m_liveEffectAttached) {
+      m_preparedInputMapping = live->inputMapping;
+    }
+    const bool transformCursor = m_liveEffectAttached && live->cursorWithScreen && !m_server->sessionLocked();
+    m_preparedCursorWithScreen = transformCursor;
+    if (transformCursor != m_transformCursorWithScreen) {
+      m_transformCursorWithScreen = transformCursor;
+      applyCursorConfig(); // Pre-warp composition requires the software cursor.
+    }
     // Register demand after the cursor program and motion history have been updated.
     const auto bind = [&](const void* owner, fx_effect_shader* shader, bool visible) {
       const bool motion = fx_effect_shader_reads(shader, "umbriel_pointer_history")
@@ -343,6 +359,7 @@ namespace umbriel {
       wlr_scene_output_set_screen_effect(m_sceneOutput, nullptr, nullptr);
       registry.removeInstance(this);
     }
+    wlr_scene_output_set_screen_effect_transform_cursor(m_sceneOutput, transformCursor);
     const Cursor* pointer = m_server->cursor();
     if (cursorPreset != nullptr && pointer != nullptr) {
       const double lx = pointer->wlr()->x;
@@ -1541,7 +1558,7 @@ namespace umbriel {
   }
 
   void Output::applyCursorConfig() {
-    const bool lockSoftwareCursor = !config().input.cursor.hardwareCursor;
+    const bool lockSoftwareCursor = !config().input.cursor.hardwareCursor || m_transformCursorWithScreen;
     if (lockSoftwareCursor == m_softwareCursorLocked) {
       return;
     }
@@ -2356,6 +2373,12 @@ namespace umbriel {
           m_gammaDirty = false;
         }
         if (commitOk && hasBuffer) {
+          // The pointer mapping becomes active only when this buffer is presented.
+          m_pendingInputMappings.push_back({m_output->commit_seq, m_preparedInputMapping, m_preparedCursorWithScreen});
+          constexpr size_t kMaxPendingMappingFrames = 32;
+          if (m_pendingInputMappings.size() > kMaxPendingMappingFrames) {
+            m_pendingInputMappings.pop_front();
+          }
           m_lastCommitTearing = commitTearing;
           m_trackingPresentation = true;
           m_trackedPresentationCommitSeq = m_output->commit_seq;
@@ -2493,6 +2516,26 @@ namespace umbriel {
     }
     if (SessionLock* lock = m_server->sessionLock()) {
       lock->handleOutputPresent(*this, event->commit_seq, event->presented);
+    }
+    const auto pending = std::find_if(m_pendingInputMappings.begin(), m_pendingInputMappings.end(),
+                                      [event](const InputMappingCommit& value) {
+                                        return value.sequence == event->commit_seq;
+                                      });
+    if (pending != m_pendingInputMappings.end()) {
+      if (event->presented) {
+        const bool changed = m_presentedInputMapping != pending->mapping
+            || m_presentedCursorWithScreen != pending->cursorWithScreen;
+        m_presentedInputMapping = pending->mapping;
+        m_presentedCursorWithScreen = pending->cursorWithScreen;
+        m_pendingInputMappings.erase(m_pendingInputMappings.begin(), pending + 1);
+        if (changed) {
+          if (Cursor* cursor = m_server->cursor()) {
+            cursor->refreshPointerContents(this);
+          }
+        }
+      } else {
+        m_pendingInputMappings.erase(pending);
+      }
     }
     if (!m_trackingPresentation || event->commit_seq != m_trackedPresentationCommitSeq) {
       return;

@@ -9,9 +9,11 @@
 #include "output/hdr_transition.h"
 #include "scene/effect_audio.h"
 #include "scene/effect_selection.h"
+#include "scene/effect_input_mapping.h"
 
 #include <array>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <string>
@@ -93,6 +95,15 @@ namespace umbriel {
     // Pushes the effect capture policy and the screen and cursor presets to this output's scene. Detached while
     // effects are suspended; the instances are visible only while the output is enabled.
     void applyOutputEffects();
+    // Matrix associated with the most recently displayed frame of this output.
+    const EffectInputMapping* presentedInputMapping() const {
+      // When the cursor is warped with the scene, hit-test using source
+      // coordinates directly to avoid applying the mapping twice.
+      if (m_presentedCursorWithScreen) {
+        return nullptr;
+      }
+      return m_presentedInputMapping ? &*m_presentedInputMapping : nullptr;
+    }
     EffectSlot& screenEffectSlot() { return m_screenEffectSlot; }
     const EffectSlot& screenEffectSlot() const { return m_screenEffectSlot; }
     // Captures are released only by a built frame: asks for one when the last frame kept effects out of a capture.
@@ -312,6 +323,7 @@ namespace umbriel {
     bool m_gammaDirty = false;
     bool m_vrrPending = false; // a VRR change waiting for the next frame commit
     bool m_softwareCursorLocked = false;
+    bool m_transformCursorWithScreen = false;
     bool m_animationRenderLocked = false;
     bool m_fullscreenAboveTopLayer = false;
     CursorPlaneState m_lastCursorPlane{};
@@ -347,6 +359,16 @@ namespace umbriel {
     float m_effectSeconds = 0.0F;
     bool m_outputEffectsTimed = false; // a visible screen or cursor instance here reads umbriel_time
     bool m_liveEffectAttached = false; // clear dynamic uniform availability after producer disconnect
+    struct InputMappingCommit {
+      uint32_t sequence = 0;
+      std::optional<EffectInputMapping> mapping;
+      bool cursorWithScreen = false;
+    };
+    std::optional<EffectInputMapping> m_preparedInputMapping;
+    bool m_preparedCursorWithScreen = false;
+    std::optional<EffectInputMapping> m_presentedInputMapping;
+    bool m_presentedCursorWithScreen = false;
+    std::deque<InputMappingCommit> m_pendingInputMappings;
     char m_cursorEffectOwner{};        // ledger identity of the cursor slot; the screen slot uses `this`
     bool m_effectCaptureBuilt = false; // the last built frame had an effect capture pending
     View* m_autoHdrOwner = nullptr;

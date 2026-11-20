@@ -1,6 +1,9 @@
 #pragma once
 
+#include "scene/effect_input_mapping.h"
+
 #include <array>
+#include <optional>
 #include <cstddef>
 #include <string>
 
@@ -20,6 +23,9 @@ namespace umbriel {
     std::string output;
     std::array<fx_uniform, kMaxLiveEffectUniforms> uniforms{};
     size_t count = 0;
+    std::optional<EffectInputMapping> inputMapping;
+    // Optional v2 mode: draw the pointer before the screen effect.
+    bool cursorWithScreen = false;
   };
 
 } // namespace umbriel
