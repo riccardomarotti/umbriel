@@ -219,6 +219,9 @@ void wlr_scene_output_set_effect_capture_policy(struct wlr_scene_output* output,
 void wlr_scene_output_set_screen_effect(
     struct wlr_scene_output* output, struct fx_effect_shader* shader, const struct fx_animation_parameters* parameters
 );
+// Draw the wlroots software cursor before the screen effect on this output.
+// The caller must force a software cursor while this option is enabled.
+void wlr_scene_output_set_screen_effect_transform_cursor(struct wlr_scene_output* output, bool enabled);
 void wlr_scene_output_set_cursor_effect(
     struct wlr_scene_output* output, struct fx_effect_shader* shader, const struct fx_animation_parameters* parameters,
     int radius

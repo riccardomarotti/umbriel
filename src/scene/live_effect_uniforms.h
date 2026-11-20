@@ -1,8 +1,11 @@
 #pragma once
 
+#include "scene/effect_input_mapping.h"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -23,9 +26,14 @@ namespace umbriel {
     std::string output;
     std::array<fx_uniform, kMaxLiveEffectUniforms> uniforms{};
     size_t count = 0;
+    std::optional<EffectInputMapping> inputMapping;
+    // Optional v2 mode: draw the pointer before the screen effect.
+    bool cursorWithScreen = false;
 
     bool operator==(const LiveEffectUniforms& other) const {
       return output == other.output
+          && inputMapping == other.inputMapping
+          && cursorWithScreen == other.cursorWithScreen
           && std::ranges::is_permutation(
                  std::span(uniforms).first(count), std::span(other.uniforms).first(other.count),
                  [](const fx_uniform& a, const fx_uniform& b) {

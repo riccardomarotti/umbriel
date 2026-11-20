@@ -201,13 +201,14 @@ namespace umbriel {
 
   std::optional<LiveEffectUniforms> IpcCommands::parseLiveEffectUniforms(const nlohmann::json& request) {
     if (!request.is_object()
-        || request.size() != 5
+        || request.size() < 5
+        || request.size() > 7
         || !request.contains("cmd")
         || !request["cmd"].is_string()
         || request["cmd"] != "effect-uniforms"
         || !request.contains("version")
         || !request["version"].is_number_integer()
-        || request["version"] != 1
+        || (request["version"] != 1 && request["version"] != 2)
         || !request.contains("kind")
         || !request["kind"].is_string()
         || request["kind"] != "screen"
@@ -224,6 +225,36 @@ namespace umbriel {
         || request["uniforms"].empty()
         || request["uniforms"].size() > kMaxLiveEffectUniforms) {
       return std::nullopt;
+    }
+
+    const bool extended = request["version"] == 2;
+    const bool hasCursorMode = extended && request.contains("cursor_with_screen");
+    if (request.size() != (extended ? (hasCursorMode ? 7U : 6U) : 5U)
+        || extended != request.contains("input_mapping")) {
+      return std::nullopt;
+    }
+    if (hasCursorMode) {
+      if (!request["cursor_with_screen"].is_boolean()) {
+        return std::nullopt;
+      }
+      snapshot.cursorWithScreen = request["cursor_with_screen"].get<bool>();
+    }
+    if (extended) {
+      const auto& values = request["input_mapping"];
+      if (!values.is_array() || values.size() != 9) {
+        return std::nullopt;
+      }
+      EffectInputMapping mapping;
+      for (size_t i = 0; i < 9; ++i) {
+        if (!values[i].is_number()) {
+          return std::nullopt;
+        }
+        mapping.matrix[i] = values[i].get<double>();
+      }
+      if (!mapping.valid()) {
+        return std::nullopt;
+      }
+      snapshot.inputMapping = mapping;
     }
 
     for (const auto& item : request["uniforms"]) {

@@ -4699,6 +4699,7 @@ struct scene_output_effects {
   bool capture_was_pending;
   float audio[FX_AUDIO_VALUES];
   struct fx_effect_shader* screen;
+  bool transform_software_cursor_with_screen;
   struct fx_animation_parameters screen_parameters;
   struct fx_animation_history screen_history;
   struct fx_effect_shader* cursor;
@@ -4952,6 +4953,15 @@ void wlr_scene_output_set_screen_effect(
   effects->screen = fx_effect_shader_ref(shader);
   effects->screen_parameters = *parameters;
   output_effects_update_configured(effects);
+  scene_output_damage_whole(output);
+}
+
+void wlr_scene_output_set_screen_effect_transform_cursor(struct wlr_scene_output* output, bool enabled) {
+  struct scene_output_effects* effects = scene_output_effects_get(output, false);
+  if (effects == NULL || effects->transform_software_cursor_with_screen == enabled) {
+    return;
+  }
+  effects->transform_software_cursor_with_screen = enabled;
   scene_output_damage_whole(output);
 }
 
@@ -7050,6 +7060,15 @@ static bool scene_output_build_state(
     }
   }
 
+  // Place the software cursor in the same source image as the desktop
+  // when requested, so both are transformed by the selected screen effect.
+  const bool warp_software_cursor = !cursors_drawn
+      && output_effects != NULL
+      && output_effects->screen != NULL
+      && output_effects->transform_software_cursor_with_screen;
+  if (warp_software_cursor) {
+    wlr_output_add_software_cursors_to_render_pass(output, render_pass, &render_data.damage);
+  }
   // A frame left unfiltered for a failed capture save shows no output effects either.
   if (!cursors_drawn) {
     render_output_effects(output_effects, &render_data);
@@ -7074,7 +7093,7 @@ static bool scene_output_build_state(
     }
   }
 
-  if (!cursors_drawn) {
+  if (!cursors_drawn && !warp_software_cursor) {
     wlr_output_add_software_cursors_to_render_pass(output, render_pass, &render_data.damage);
   }
 

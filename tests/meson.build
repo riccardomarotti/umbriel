@@ -15,6 +15,7 @@ unit_tests = [
   ['shader-source', ['unit/shader_source.cpp'], []],
   ['effects', ['unit/effects.cpp'], []],
   ['effect-selection', ['unit/effect_selection.cpp'], []],
+  ['effect-input-mapping', ['unit/effect_input_mapping.cpp'], []],
   ['window-opacity-blur', ['unit/window_opacity_blur.cpp'], [umbriel_core_dep]],
   ['value-parse', ['unit/value_parse.cpp'], []],
   ['keybind-parse', ['unit/keybind_parse.cpp'], []],
